@@ -3,16 +3,23 @@ from pathlib import Path
 
 import pytest
 
-from backend.sandbox import SandboxLimits, build_docker_args, docker_available, run_in_sandbox
+from backend.sandbox import (
+    DepsVolume,
+    SandboxLimits,
+    build_dependencies,
+    build_docker_args,
+    docker_available,
+    run_in_sandbox,
+)
 
-LIMITS = SandboxLimits(cpus=0.5, memory="256m", pids=64, timeout_s=5, output_limit=1024)
+LIMITS = SandboxLimits(cpus=0.5, memory="256m", pids=64, timeout_s=5, output_limit=1024, out_tmpfs_bytes=1024 * 1024)
 
 requires_docker = pytest.mark.skipif(not docker_available(), reason="Docker no está disponible")
 
 
 def test_docker_args_enforce_isolation(tmp_path):
-    ws, out = tmp_path / "ws", tmp_path / "out"
-    args = build_docker_args("cc-sbx-test", "img:1", ws, out, "echo hi", LIMITS)
+    ws = tmp_path / "ws"
+    args = build_docker_args("cc-sbx-test", "img:1", ws, LIMITS)
     joined = " ".join(args)
     assert ["--network", "none"] == args[args.index("--network"): args.index("--network") + 2]
     assert "--read-only" in args
@@ -23,9 +30,13 @@ def test_docker_args_enforce_isolation(tmp_path):
     assert "--memory 256m --memory-swap 256m" in joined
     assert "--pids-limit 64" in joined
     assert f"source={ws.resolve()},target=/workspace,readonly" in joined
-    out_mount = next(a for a in args if "target=/out" in a)
-    assert "readonly" not in out_mount
-    assert args[-3:] == ["sh", "-c", "echo hi"]
+    assert "type=tmpfs,target=/out,tmpfs-size=1048576" in joined
+    assert args[-3:-1] == ["img:1", "sleep"]
+
+
+def test_network_only_when_requested(tmp_path):
+    args = build_docker_args("n", "img", tmp_path, LIMITS, network=True)
+    assert args[args.index("--network") + 1] == "bridge"
 
 
 @pytest.fixture
@@ -64,15 +75,25 @@ def test_isolation_inside_container(workspace, tmp_path):
         "id -u; "
         "touch /workspace/x 2>/dev/null && echo ws-writable || echo ws-readonly; "
         "touch /etc/x 2>/dev/null && echo root-writable || echo root-readonly; "
-        "echo result > /out/result.txt && echo out-writable; "
+        "mkdir -p /out/sub && echo result > /out/sub/result.txt && echo out-writable; "
         "python -c \"import socket; socket.create_connection(('1.1.1.1', 53), timeout=3)\" "
         "2>/dev/null && echo net-on || echo net-off"
     )
     result = run_in_sandbox(workspace, cmd, out, limits=LIMITS)
     lines = result.stdout.split()
     assert lines == ["65534", "ws-readonly", "root-readonly", "out-writable", "net-off"]
-    assert (out / "result.txt").read_text().strip() == "result"
+    assert (out / "sub" / "result.txt").read_text().strip() == "result"
+    assert result.output_files == ["sub/result.txt"]
     assert not (workspace / "x").exists()
+
+
+@requires_docker
+def test_out_tmpfs_has_size_limit(workspace, tmp_path):
+    cmd = "dd if=/dev/zero of=/out/big bs=1024 count=4096 2>&1; echo rc=$?; du -k /out/big | cut -f1"
+    result = run_in_sandbox(workspace, cmd, tmp_path / "out", limits=LIMITS)
+    assert "No space left on device" in result.stdout
+    written_kb = int(result.stdout.strip().split()[-1])
+    assert written_kb <= 1024  # nunca más que el tmpfs de 1 MB
 
 
 @requires_docker
@@ -82,3 +103,45 @@ def test_output_is_truncated(workspace, tmp_path):
     assert len(result.stdout.encode()) == LIMITS.output_limit
     assert result.stdout_truncated is True
     assert result.stderr_truncated is False
+
+
+@requires_docker
+def test_oom_is_reported(workspace, tmp_path):
+    result = run_in_sandbox(workspace, "python -c 'b = bytearray(1024**3)'", tmp_path / "out", limits=LIMITS)
+    assert result.oom_killed is True
+    assert result.exit_code == 137
+
+
+@requires_docker
+@pytest.mark.network
+def test_build_with_network_then_test_without_network(workspace, tmp_path):
+    image = "python:3.12-slim"
+    volume = DepsVolume(image)
+    try:
+        build = build_dependencies(["six==1.17.0"], volume, image)
+        assert build.exit_code == 0, build.stdout + build.stderr
+        assert build.network is True
+        cmd = (
+            "python -c \"import sys; sys.path.append('/deps'); import six; print('six', six.__version__)\"; "
+            "touch /deps/x 2>/dev/null && echo deps-writable || echo deps-readonly; "
+            "python -c \"import socket; socket.create_connection(('pypi.org', 443), timeout=3)\" "
+            "2>/dev/null && echo net-on || echo net-off"
+        )
+        test = run_in_sandbox(workspace, cmd, tmp_path / "out", image=image, limits=LIMITS, mounts=(volume.mount(),))
+        assert test.stdout.split() == ["six", "1.17.0", "deps-readonly", "net-off"]
+    finally:
+        volume.remove()
+
+
+@requires_docker
+@pytest.mark.network
+def test_build_refuses_sdist_only_packages(tmp_path):
+    # --only-binary=:all: impide ejecutar setup.py de paquetes sin wheel.
+    image = "python:3.12-slim"
+    volume = DepsVolume(image)
+    try:
+        build = build_dependencies(["pyyaml==3.10"], volume, image)  # 3.10 solo existe como sdist
+        assert build.exit_code != 0
+        assert "No matching distribution" in build.stderr or "Could not find a version" in build.stderr
+    finally:
+        volume.remove()

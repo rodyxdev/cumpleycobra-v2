@@ -1,25 +1,30 @@
 """Ejecución aislada de comandos en un contenedor Docker.
 
 Aislamiento aplicado a cada ejecución:
-- `--network none`: sin red.
+- `--network none` por defecto (el paso BUILD es el único que pide red).
 - `--cpus`, `--memory` (= `--memory-swap`, sin swap) y `--pids-limit`.
 - `--user 65534:65534` (nobody), `--cap-drop ALL`, `--security-opt no-new-privileges`.
 - raíz del contenedor de solo lectura (`--read-only`) con un `/tmp` tmpfs pequeño.
-- workspace montado en `/workspace` de solo lectura y `/out` como único directorio escribible.
-- límite de tiempo de pared: al vencer se mata el contenedor por nombre (matar el
-  proceso `docker` del host no detiene el contenedor).
+- workspace montado en `/workspace` de solo lectura; `/out` es un tmpfs con tamaño máximo.
+- límite de tiempo de pared: al vencer se mata el contenedor por nombre.
 
-stdout/stderr se leen en streaming y se conservan sólo los primeros N bytes, para
+Modelo de ejecución: el contenedor arranca en espera (`sleep`), el comando corre con
+`docker exec` y, al terminar, el contenido de `/out` se extrae con `tar` por stdout
+(un tmpfs desaparece al parar el contenedor, así que hay que leerlo mientras vive).
+
+stdout/stderr se leen en streaming y se conservan solo los primeros N bytes, para
 que una salida infinita no agote la memoria del backend.
 """
 
 from __future__ import annotations
 
+import io
 import subprocess
+import tarfile
 import threading
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from backend.config import get_settings
@@ -28,6 +33,8 @@ SANDBOX_UID = "65534:65534"
 WORKSPACE_MOUNT = "/workspace"
 OUTPUT_MOUNT = "/out"
 _CHUNK = 64 * 1024
+# El contenedor se autodestruye aunque el backend muera a mitad de ejecución.
+_IDLE_GRACE_S = 120
 
 
 class SandboxUnavailable(RuntimeError):
@@ -41,11 +48,32 @@ class SandboxLimits:
     pids: int
     timeout_s: float
     output_limit: int
+    out_tmpfs_bytes: int = 16 * 1024 * 1024
 
     @classmethod
     def from_settings(cls) -> "SandboxLimits":
         s = get_settings()
-        return cls(s.sandbox_cpus, s.sandbox_memory, s.sandbox_pids, s.sandbox_timeout_s, s.sandbox_output_limit)
+        return cls(
+            s.sandbox_cpus, s.sandbox_memory, s.sandbox_pids, s.sandbox_timeout_s,
+            s.sandbox_output_limit, s.sandbox_out_bytes,
+        )
+
+
+@dataclass(frozen=True)
+class Mount:
+    """Montaje adicional. `kind` es `bind` (ruta del host) o `volume` (volumen de Docker)."""
+
+    source: str
+    target: str
+    readonly: bool = True
+    kind: str = "bind"
+
+    def arg(self) -> str:
+        source = str(Path(self.source).resolve()) if self.kind == "bind" else self.source
+        if "," in source or "," in self.target:
+            raise ValueError(f"ruta no montable (contiene ','): {source}")
+        spec = f"type={self.kind},source={source},target={self.target}"
+        return spec + (",readonly" if self.readonly else "")
 
 
 @dataclass(frozen=True)
@@ -60,10 +88,12 @@ class SandboxResult:
     oom_killed: bool
     image: str
     command: str
+    network: bool = False
+    output_files: list[str] = field(default_factory=list)
 
 
 class _CappedReader(threading.Thread):
-    """Drena un pipe completo guardando sólo los primeros `limit` bytes."""
+    """Drena un pipe completo guardando solo los primeros `limit` bytes."""
 
     def __init__(self, stream, limit: int):
         super().__init__(daemon=True)
@@ -86,9 +116,9 @@ class _CappedReader(threading.Thread):
         return self.buf.decode("utf-8", errors="replace")
 
 
-def _docker(args: list[str], timeout_s: float = 30) -> subprocess.CompletedProcess:
+def _docker(args: list[str], timeout_s: float = 30, text: bool = True) -> subprocess.CompletedProcess:
     try:
-        return subprocess.run(["docker", *args], capture_output=True, text=True, timeout=timeout_s)
+        return subprocess.run(["docker", *args], capture_output=True, text=text, timeout=timeout_s)
     except FileNotFoundError as exc:
         raise SandboxUnavailable("no se encontró el binario 'docker'") from exc
     except subprocess.TimeoutExpired as exc:
@@ -112,13 +142,21 @@ def ensure_image(image: str, pull_timeout_s: float = 600) -> None:
 
 
 def build_docker_args(
-    name: str, image: str, workspace: Path, output_dir: Path, command: str, limits: SandboxLimits
+    name: str,
+    image: str,
+    workspace: Path,
+    limits: SandboxLimits,
+    *,
+    network: bool = False,
+    mounts: tuple[Mount, ...] = (),
+    env: dict[str, str] | None = None,
 ) -> list[str]:
-    return [
-        "docker", "run",
+    """Argumentos de `docker run` para el contenedor en espera."""
+    args = [
+        "docker", "run", "--detach",
         "--name", name,
         "--pull", "never",
-        "--network", "none",
+        "--network", "bridge" if network else "none",
         "--cpus", str(limits.cpus),
         "--memory", limits.memory,
         "--memory-swap", limits.memory,
@@ -128,15 +166,30 @@ def build_docker_args(
         "--security-opt", "no-new-privileges",
         "--read-only",
         "--tmpfs", "/tmp:rw,nosuid,nodev,size=64m",
-        "--mount", f"type=bind,source={workspace.resolve()},target={WORKSPACE_MOUNT},readonly",
-        "--mount", f"type=bind,source={output_dir.resolve()},target={OUTPUT_MOUNT}",
-        "--workdir", WORKSPACE_MOUNT,
-        "--env", "HOME=/tmp",
-        "--env", "PYTHONDONTWRITEBYTECODE=1",
-        "--env", f"OUTPUT_DIR={OUTPUT_MOUNT}",
-        image,
-        "sh", "-c", command,
+        "--mount", f"type=tmpfs,target={OUTPUT_MOUNT},tmpfs-size={limits.out_tmpfs_bytes},tmpfs-mode=1777",
+        "--mount", Mount(str(workspace), WORKSPACE_MOUNT).arg(),
     ]
+    for m in mounts:
+        args += ["--mount", m.arg()]
+    args += ["--workdir", WORKSPACE_MOUNT]
+    merged_env = {"HOME": "/tmp", "PYTHONDONTWRITEBYTECODE": "1", "OUTPUT_DIR": OUTPUT_MOUNT, **(env or {})}
+    for key, value in merged_env.items():
+        args += ["--env", f"{key}={value}"]
+    args += [image, "sleep", str(int(limits.timeout_s) + _IDLE_GRACE_S)]
+    return args
+
+
+def _extract_out(name: str, output_dir: Path) -> list[str]:
+    """Copia `/out` del contenedor al host. Tamaño acotado por el tmpfs."""
+    proc = _docker(["exec", name, "tar", "-C", OUTPUT_MOUNT, "-cf", "-", "."], timeout_s=60, text=False)
+    if proc.returncode != 0 or not proc.stdout:
+        return []
+    output_dir.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(fileobj=io.BytesIO(proc.stdout)) as tar:
+        # filtro "data": rechaza rutas absolutas, `..`, enlaces fuera del destino y dispositivos.
+        members = [m for m in tar.getmembers() if m.isfile() or m.isdir()]
+        tar.extractall(output_dir, members=members, filter="data")
+        return sorted(m.name.removeprefix("./") for m in members if m.isfile())
 
 
 def run_in_sandbox(
@@ -146,52 +199,64 @@ def run_in_sandbox(
     *,
     image: str | None = None,
     limits: SandboxLimits | None = None,
+    network: bool = False,
+    mounts: tuple[Mount, ...] = (),
+    env: dict[str, str] | None = None,
 ) -> SandboxResult:
     """Ejecuta `command` (vía `sh -c`) dentro de un contenedor aislado."""
     image = image or get_settings().sandbox_image
     limits = limits or SandboxLimits.from_settings()
-    for p in (workspace, output_dir):
-        if "," in str(p.resolve()):
-            raise ValueError(f"ruta no montable (contiene ','): {p}")
-    output_dir.mkdir(parents=True, exist_ok=True)
     ensure_image(image)
 
     name = f"cc-sbx-{uuid.uuid4().hex[:12]}"
-    args = build_docker_args(name, image, workspace, output_dir, command, limits)
-    started = time.monotonic()
-    proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL)
-    out = _CappedReader(proc.stdout, limits.output_limit)
-    err = _CappedReader(proc.stderr, limits.output_limit)
-    out.start()
-    err.start()
-
-    timed_out = False
+    args = build_docker_args(name, image, workspace, limits, network=network, mounts=mounts, env=env)
     try:
-        proc.wait(timeout=limits.timeout_s)
-    except subprocess.TimeoutExpired:
-        timed_out = True
-        _docker(["kill", name])
+        created = _docker(args[1:], timeout_s=60)
+        if created.returncode != 0:
+            raise SandboxUnavailable(f"no se pudo crear el contenedor: {created.stderr.strip()[-300:]}")
+
+        started = time.monotonic()
+        proc = subprocess.Popen(
+            ["docker", "exec", name, "sh", "-c", command],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL,
+        )
+        out = _CappedReader(proc.stdout, limits.output_limit)
+        err = _CappedReader(proc.stderr, limits.output_limit)
+        out.start()
+        err.start()
+
+        timed_out = False
         try:
-            proc.wait(timeout=15)
+            proc.wait(timeout=limits.timeout_s)
         except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()
-    duration = time.monotonic() - started
-    out.join(timeout=5)
-    err.join(timeout=5)
+            timed_out = True
+            _docker(["kill", name])
+            try:
+                proc.wait(timeout=15)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+        duration = time.monotonic() - started
+        out.join(timeout=5)
+        err.join(timeout=5)
 
-    oom = _docker(["inspect", "--format", "{{.State.OOMKilled}}", name]).stdout.strip() == "true"
-    _docker(["rm", "--force", name])
-
-    return SandboxResult(
-        exit_code=None if timed_out else proc.returncode,
-        stdout=out.text(),
-        stderr=err.text(),
-        stdout_truncated=out.truncated,
-        stderr_truncated=err.truncated,
-        duration_s=round(duration, 3),
-        timed_out=timed_out,
-        oom_killed=oom,
-        image=image,
-        command=command,
-    )
+        output_files = [] if timed_out else _extract_out(name, output_dir)
+        oom = _docker(["inspect", "--format", "{{.State.OOMKilled}}", name]).stdout.strip() == "true"
+        exit_code = None if timed_out else proc.returncode
+        return SandboxResult(
+            exit_code=exit_code,
+            stdout=out.text(),
+            stderr=err.text(),
+            stdout_truncated=out.truncated,
+            stderr_truncated=err.truncated,
+            duration_s=round(duration, 3),
+            timed_out=timed_out,
+            # Con `docker exec`, un OOM mata al proceso (137) sin marcar siempre el contenedor.
+            oom_killed=oom or exit_code == 137,
+            image=image,
+            command=command,
+            network=network,
+            output_files=output_files,
+        )
+    finally:
+        _docker(["rm", "--force", name])

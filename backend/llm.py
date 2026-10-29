@@ -4,6 +4,9 @@
 modelo Pydantic (`response_format=json_schema`, `strict=True`) y la valida con ese
 mismo modelo. Los reintentos los hacemos nosotros (el SDK queda con `max_retries=0`)
 para controlar el backoff y respetar `Retry-After`.
+
+`track_usage()` registra tokens y latencia de cada llamada hecha dentro del bloque
+(también desde hilos lanzados con `contextvars.copy_context().run`).
 """
 
 from __future__ import annotations
@@ -12,7 +15,10 @@ import copy
 import logging
 import random
 import time
-from typing import Any, Callable, TypeVar
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass
+from typing import Any, Callable, Iterator, TypeVar
 
 import openai
 from openai import OpenAI
@@ -26,6 +32,48 @@ T = TypeVar("T", bound=BaseModel)
 
 RETRYABLE_STATUS = {408, 409, 429}
 MAX_BACKOFF_S = 30.0
+
+
+@dataclass(frozen=True)
+class LLMCall:
+    name: str
+    model: str
+    latency_s: float
+    attempts: int
+    prompt_tokens: int
+    completion_tokens: int
+    reasoning_tokens: int
+
+
+_usage: ContextVar[list[LLMCall] | None] = ContextVar("llm_usage", default=None)
+
+
+@contextmanager
+def track_usage() -> Iterator[list[LLMCall]]:
+    """Acumula un `LLMCall` por cada llamada exitosa hecha dentro del bloque."""
+    calls: list[LLMCall] = []
+    token = _usage.set(calls)
+    try:
+        yield calls
+    finally:
+        _usage.reset(token)
+
+
+def _record(name: str, model: str, started: float, attempts: int, response: Any) -> None:
+    calls = _usage.get()
+    if calls is None:
+        return
+    usage = getattr(response, "usage", None)
+    details = getattr(usage, "completion_tokens_details", None)
+    calls.append(LLMCall(
+        name=name,
+        model=model,
+        latency_s=round(time.monotonic() - started, 3),
+        attempts=attempts,
+        prompt_tokens=getattr(usage, "prompt_tokens", 0) or 0,
+        completion_tokens=getattr(usage, "completion_tokens", 0) or 0,
+        reasoning_tokens=getattr(details, "reasoning_tokens", 0) or 0,
+    ))
 
 
 class LLMError(RuntimeError):
@@ -123,10 +171,13 @@ def structured_completion(
     s = get_settings()
     client = client or get_client(timeout_s)
     attempts = max_attempts or s.llm_max_attempts
+    model = model or s.muse_model
+    name = schema_name or output_model.__name__
+    started = time.monotonic()
     response_format = {
         "type": "json_schema",
         "json_schema": {
-            "name": schema_name or output_model.__name__,
+            "name": name,
             "schema": strict_json_schema(output_model),
             "strict": True,
         },
@@ -135,7 +186,7 @@ def structured_completion(
     for attempt in range(1, attempts + 1):
         try:
             response = client.chat.completions.create(
-                model=model or s.muse_model,
+                model=model,
                 messages=messages,
                 response_format=response_format,
             )
@@ -148,6 +199,7 @@ def structured_completion(
             log.warning("LLM intento %d/%d falló (%s); reintento en %.1fs", attempt, attempts, type(exc).__name__, delay)
             sleep(delay)
 
+    _record(name, model, started, attempt, response)
     choice = response.choices[0]
     raw = choice.message.content
     refusal = getattr(choice.message, "refusal", None)

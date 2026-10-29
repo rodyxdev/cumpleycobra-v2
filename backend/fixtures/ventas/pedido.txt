@@ -1,0 +1,19 @@
+Necesito un módulo Python `ventas.py` con una función
+`resumir_ventas(texto: str) -> dict[str, int]`.
+
+El texto trae una venta por línea con el formato `producto,cantidad,precio_unitario_centavos`.
+La función debe devolver un diccionario con el total vendido por producto, en centavos
+(cantidad × precio, sumando todas las líneas del mismo producto).
+
+Reglas:
+- Ignorar las líneas vacías o que solo tengan espacios, y las que empiezan con `#` (comentarios).
+- Quitar los espacios alrededor de cada campo; el nombre del producto se pasa a minúsculas.
+- Si una línea no tiene exactamente 3 campos, o la cantidad o el precio no son enteros no negativos,
+  lanzar ValueError con un mensaje que incluya el número de línea (empezando en 1).
+- Un texto sin ventas devuelve un diccionario vacío.
+- Solo biblioteca estándar, nada de eval/exec, y la función pública con type hints.
+
+Ejemplos:
+- resumir_ventas("manzana,2,150\npera,1,300") devuelve {"manzana": 300, "pera": 300}
+- resumir_ventas("Manzana, 1, 100\nmanzana,3,100") devuelve {"manzana": 400}
+- resumir_ventas("pera,dos,300") lanza ValueError

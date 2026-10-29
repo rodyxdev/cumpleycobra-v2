@@ -1,0 +1,119 @@
+{
+  "title": "Resumir ventas por producto",
+  "profile": "script",
+  "description": "Módulo ventas.py que resume el total vendido por producto en centavos a partir de un texto con una venta por línea en formato producto,cantidad,precio_unitario_centavos.",
+  "interface": {
+    "language": "python",
+    "symbols": [
+      {
+        "module": "ventas",
+        "name": "resumir_ventas",
+        "kind": "function",
+        "signature": "resumir_ventas(texto: str) -> dict[str, int]",
+        "description": "Recibe el texto de ventas y devuelve un diccionario producto en minúsculas -> total en centavos."
+      }
+    ]
+  },
+  "criteria": [
+    {
+      "id": "C1",
+      "text": "Para las líneas válidas, devuelve un dict producto -> suma de cantidad × precio_unitario_centavos (int), acumulando todas las líneas del mismo producto.",
+      "type": "test",
+      "required": true,
+      "static_check": null
+    },
+    {
+      "id": "C2",
+      "text": "Divide el texto con splitlines(). Ignora una línea si linea.strip() == '' o si linea.strip() empieza con '#'. Una línea como 'pera,1,300 # nota' NO es comentario (y es inválida por C5).",
+      "type": "test",
+      "required": true,
+      "static_check": null
+    },
+    {
+      "id": "C3",
+      "text": "Aplica strip() a cada uno de los 3 campos y usa el producto en minúsculas como clave: 'Manzana , 2 , 150' suma 300 a 'manzana'.",
+      "type": "test",
+      "required": true,
+      "static_check": null
+    },
+    {
+      "id": "C4",
+      "text": "Si una línea no ignorada no tiene exactamente 3 campos separados por coma, o el producto queda vacío tras strip(), lanza ValueError y str(error) contiene el número de línea, contando desde 1 todas las líneas de splitlines() (incluidas vacías y comentarios).",
+      "type": "test",
+      "required": true,
+      "static_check": null
+    },
+    {
+      "id": "C5",
+      "text": "Si la cantidad o el precio (tras strip()) no son solo dígitos ASCII (regex ^[0-9]+$, p. ej. 'dos', '-1', '+5', '2.0' o ''), lanza ValueError y str(error) contiene el número de línea numerado como en C4.",
+      "type": "test",
+      "required": true,
+      "static_check": null
+    },
+    {
+      "id": "C6",
+      "text": "Un texto sin ventas ('' o solo líneas ignorables) devuelve {}.",
+      "type": "test",
+      "required": true,
+      "static_check": null
+    },
+    {
+      "id": "C7",
+      "text": "Solo usa la biblioteca estándar de Python",
+      "type": "static",
+      "required": true,
+      "static_check": {
+        "kind": "imports_allowed",
+        "args": []
+      }
+    },
+    {
+      "id": "C8",
+      "text": "No usa eval ni exec",
+      "type": "static",
+      "required": true,
+      "static_check": {
+        "kind": "forbid_calls",
+        "args": [
+          "eval",
+          "exec"
+        ]
+      }
+    },
+    {
+      "id": "C9",
+      "text": "La función pública resumir_ventas tiene anotaciones de tipos",
+      "type": "static",
+      "required": true,
+      "static_check": {
+        "kind": "require_type_hints",
+        "args": [
+          "resumir_ventas"
+        ]
+      }
+    }
+  ],
+  "allowed_dependencies": [],
+  "examples": [
+    {
+      "description": "Dos productos distintos",
+      "input": "resumir_ventas(\"manzana,2,150\\npera,1,300\")",
+      "expected_output": "{\"manzana\": 300, \"pera\": 300}"
+    },
+    {
+      "description": "Normaliza espacios y mayúsculas y acumula el mismo producto",
+      "input": "resumir_ventas(\"Manzana, 1, 100\\nmanzana,3,100\")",
+      "expected_output": "{\"manzana\": 400}"
+    },
+    {
+      "description": "Cantidad no entera lanza ValueError",
+      "input": "resumir_ventas(\"pera,dos,300\")",
+      "expected_output": "raises ValueError"
+    },
+    {
+      "description": "Comentarios y líneas vacías se ignoran",
+      "input": "resumir_ventas(\"# cabecera\\n\\nuva,3,50\")",
+      "expected_output": "{\"uva\": 150}"
+    }
+  ]
+}

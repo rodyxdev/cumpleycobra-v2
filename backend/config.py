@@ -44,16 +44,25 @@ class Settings:
     sandbox_pids: int
     sandbox_timeout_s: float
     sandbox_output_limit: int
+    sandbox_out_bytes: int
+    build_timeout_s: float
+    build_memory: str
+    runner_image: str | None
+    # Verificación
+    task_store_dir: Path
+    suite_max_regenerations: int
+    hidden_test_timeout_s: int
 
 
 def get_settings() -> Settings:
+    work_dir = Path(os.getenv("WORK_DIR", str(REPO_ROOT / ".data")))
     return Settings(
         model_api_key=os.getenv("MODEL_API_KEY"),
         model_base_url=os.getenv("MODEL_BASE_URL", "https://api.meta.ai/v1"),
         muse_model=os.getenv("MUSE_MODEL", "muse-spark-1.3"),
         llm_timeout_s=_float("LLM_TIMEOUT_S", 120.0),
         llm_max_attempts=_int("LLM_MAX_ATTEMPTS", 4),
-        work_dir=Path(os.getenv("WORK_DIR", str(REPO_ROOT / ".data"))),
+        work_dir=work_dir,
         zip_max_upload_bytes=_int("ZIP_MAX_UPLOAD_BYTES", 50 * 1024 * 1024),
         zip_max_uncompressed_bytes=_int("ZIP_MAX_UNCOMPRESSED_BYTES", 200 * 1024 * 1024),
         zip_max_files=_int("ZIP_MAX_FILES", 10_000),
@@ -65,4 +74,11 @@ def get_settings() -> Settings:
         sandbox_pids=_int("SANDBOX_PIDS", 256),
         sandbox_timeout_s=_float("SANDBOX_TIMEOUT_S", 60.0),
         sandbox_output_limit=_int("SANDBOX_OUTPUT_LIMIT", 64 * 1024),
+        sandbox_out_bytes=_int("SANDBOX_OUT_BYTES", 16 * 1024 * 1024),
+        build_timeout_s=_float("BUILD_TIMEOUT_S", 180.0),
+        build_memory=os.getenv("BUILD_MEMORY", "1g"),
+        runner_image=os.getenv("RUNNER_IMAGE") or None,
+        task_store_dir=Path(os.getenv("TASK_STORE_DIR", str(work_dir / "tasks"))),
+        suite_max_regenerations=_int("SUITE_MAX_REGENERATIONS", 2),
+        hidden_test_timeout_s=_int("HIDDEN_TEST_TIMEOUT_S", 10),
     )
