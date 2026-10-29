@@ -118,7 +118,8 @@ class _CappedReader(threading.Thread):
 
 def _docker(args: list[str], timeout_s: float = 30, text: bool = True) -> subprocess.CompletedProcess:
     try:
-        return subprocess.run(["docker", *args], capture_output=True, text=text, timeout=timeout_s)
+        return subprocess.run(["docker", *args], capture_output=True, text=text, timeout=timeout_s,
+                              encoding="utf-8" if text else None, errors="replace" if text else None)
     except FileNotFoundError as exc:
         raise SandboxUnavailable("no se encontró el binario 'docker'") from exc
     except subprocess.TimeoutExpired as exc:
@@ -210,7 +211,7 @@ def _extract_out(name: str, output_dir: Path) -> list[str]:
 def run_in_sandbox(
     workspace: Path | None,
     command: str,
-    output_dir: Path,
+    output_dir: Path | None,
     *,
     image: str | None = None,
     limits: SandboxLimits | None = None,
@@ -258,7 +259,7 @@ def run_in_sandbox(
         out.join(timeout=5)
         err.join(timeout=5)
 
-        output_files = [] if timed_out else _extract_out(name, output_dir)
+        output_files = [] if timed_out or output_dir is None else _extract_out(name, output_dir)
         oom = _docker(["inspect", "--format", "{{.State.OOMKilled}}", name]).stdout.strip() == "true"
         exit_code = None if timed_out else proc.returncode
         return SandboxResult(

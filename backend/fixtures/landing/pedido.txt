@@ -1,0 +1,10 @@
+Necesito una landing de una sola página para "Huerta Viva", un servicio de cajas de verduras orgánicas.
+
+- Cabecera con la marca a la izquierda y navegación (Servicios, Contacto) a la derecha.
+- Sección principal con el título "Verduras orgánicas a tu puerta", una frase corta y un botón "Pedir ahora".
+- Sección de servicios con tres tarjetas en una fila (en móvil, una debajo de otra).
+- Formulario de contacto con Nombre, Email y Mensaje y un botón "Enviar". Al enviar, debe hacer un POST
+  con los datos a /api/contacto y mostrar "¡Gracias! Te responderemos pronto.".
+- Tiene que verse bien en celular (390 px), sin scroll horizontal.
+- El título de la pestaña debe decir "Huerta Viva".
+Adjunto dos mockups: M1 (escritorio) y M2 (móvil). La estructura debe parecerse a ellos.

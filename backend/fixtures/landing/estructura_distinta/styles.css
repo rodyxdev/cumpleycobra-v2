@@ -1,0 +1,5 @@
+body { margin: 0; font-family: Georgia, serif; background: #fff; color: #222; }
+.col { max-width: 420px; margin: 0 auto; padding: 16px; }
+form { display: grid; gap: 6px; }
+input, textarea, button { font: inherit; padding: 6px; }
+h1 { font-size: 1.3rem; }

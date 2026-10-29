@@ -1,0 +1,21 @@
+* { box-sizing: border-box; }
+body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #1f2a1f; background: #fbfaf5; line-height: 1.5; }
+.wrap { width: 1100px; margin: 0 auto; padding: 0 24px; }
+.topbar { background: #2f5d34; color: #fff; }
+.topbar-inner { display: flex; align-items: center; justify-content: space-between; height: 64px; }
+.brand { color: #fff; font-weight: 700; font-size: 1.25rem; text-decoration: none; }
+nav a { color: #fff; margin-left: 24px; text-decoration: none; }
+.hero { background: #e7efe1; padding: 72px 0; }
+.hero h1 { font-size: 2.6rem; margin: 0 0 12px; }
+.hero p { font-size: 1.15rem; margin: 0 0 24px; }
+.cta { display: inline-block; background: #e07a2f; color: #fff; padding: 12px 22px; border-radius: 8px; text-decoration: none; font-weight: 600; }
+h2 { margin: 48px 0 20px; }
+.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+.card { background: #fff; border: 1px solid #dfe5d8; border-radius: 10px; padding: 20px; }
+.contact form { display: grid; gap: 8px; max-width: 520px; }
+input, textarea { font: inherit; padding: 10px; border: 1px solid #b9c4b0; border-radius: 6px; }
+button { font: inherit; background: #2f5d34; color: #fff; border: 0; border-radius: 6px; padding: 12px; cursor: pointer; margin-top: 8px; }
+.ok { color: #2f5d34; font-weight: 600; }
+.footer { padding: 40px 24px; color: #5b6656; }
+
+.contact form { width: 520px; }

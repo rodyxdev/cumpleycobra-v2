@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Huerta Viva — Verduras orgánicas a tu puerta</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="wrap topbar-inner">
+      <a class="brand" href="#">Huerta Viva</a>
+      <nav aria-label="Principal">
+        <a href="#servicios">Servicios</a>
+        <a href="#contacto">Contacto</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="wrap">
+        <h1>Verduras orgánicas a tu puerta</h1>
+        <p>Cajas semanales de productores locales, cosechadas el día anterior.</p>
+        <a class="cta" href="#contacto">Pedir ahora</a>
+      </div>
+    </section>
+
+    <section id="servicios" class="wrap">
+      <h2>Servicios</h2>
+      <div class="cards">
+        <article class="card"><h3>Caja semanal</h3><p>Diez variedades de temporada cada lunes.</p></article>
+        <article class="card"><h3>Caja familiar</h3><p>Doble cantidad para hogares de cuatro o más.</p></article>
+        <article class="card"><h3>Pedido a medida</h3><p>Elige producto por producto desde tu cuenta.</p></article>
+      </div>
+    </section>
+
+    <section id="contacto" class="wrap contact">
+      <h2>Contacto</h2>
+      <form id="form-contacto" novalidate>
+        <label for="nombre">Nombre</label>
+        <input id="nombre" name="nombre" type="text" required>
+        <label for="email">Email</label>
+        <input id="email" name="email" type="email" required>
+        <label for="mensaje">Mensaje</label>
+        <textarea id="mensaje" name="mensaje" rows="4" required></textarea>
+        <button type="submit">Enviar</button>
+      </form>
+      <p id="confirmacion" class="ok" hidden>¡Gracias! Te responderemos pronto.</p>
+    </section>
+  </main>
+
+  <footer class="wrap footer">© 2026 Huerta Viva · Santiago</footer>
+  <script src="app.js"></script>
+</body>
+</html>

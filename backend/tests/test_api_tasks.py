@@ -82,7 +82,7 @@ def test_unknown_task_is_404(client):
 
 
 def test_draft_and_review_endpoints(client, monkeypatch):
-    monkeypatch.setattr(main, "draft_task", lambda text: ventas_draft())
+    monkeypatch.setattr(main, "draft_task", lambda text, mockups=None: ventas_draft())
     assert client.post("/tasks/draft", json={"request": "Necesito una función de ventas"}).json()["title"]
     monkeypatch.setattr(drafting, "structured_completion", lambda *a, **k: DraftReview(ok=True, issues=[], summary="ok"))
     review = client.post("/tasks/draft/review", json={"draft": ventas_draft().model_dump(mode="json")}).json()
@@ -90,7 +90,7 @@ def test_draft_and_review_endpoints(client, monkeypatch):
 
 
 def test_llm_failure_maps_to_502(client, monkeypatch):
-    def boom(text):
+    def boom(text, mockups=None):
         raise LLMError("429 agotado")
 
     monkeypatch.setattr(main, "draft_task", boom)

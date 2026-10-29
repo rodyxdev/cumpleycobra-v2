@@ -96,6 +96,15 @@ def load_task(task_id: str) -> TaskRecord:
     return TaskRecord.model_validate_json(path.read_text(encoding="utf-8"))
 
 
+def evidence_dir(task_id: str, submission_id: str) -> Path:
+    """Capturas, videos y resultados del navegador de una entrega (perfil web)."""
+    if not _TASK_ID_RE.match(submission_id):
+        raise KeyError(submission_id)
+    path = task_dir(task_id) / "verdicts" / submission_id
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def save_verdict(task_id: str, submission_id: str, report: dict) -> Path:
     path = task_dir(task_id) / "verdicts" / f"{submission_id}.json"
     _write_atomic(path, json.dumps(report, ensure_ascii=False, indent=1))

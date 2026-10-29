@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from contextlib import contextmanager
 from dataclasses import asdict
@@ -10,6 +11,7 @@ from pathlib import Path
 from typing import Annotated, Iterator
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from backend.config import get_settings
@@ -25,7 +27,7 @@ from backend.ingest import (
 )
 from backend.llm import LLMError
 from backend.sandbox import SandboxUnavailable, run_in_sandbox
-from backend.tasks import load_task, save_task, save_verdict
+from backend.tasks import load_task, save_task, save_verdict, task_dir
 from backend.workflow import TaskCreationError, create_task
 
 log = logging.getLogger(__name__)
@@ -70,7 +72,7 @@ def health() -> dict:
 def post_task_draft(body: TaskRequest) -> TaskDraft:
     """Pedido en texto libre → borrador de contrato propuesto por Muse Spark."""
     try:
-        return draft_task(body.request)
+        return draft_task(body.request, [m.model_dump() for m in body.mockups])
     except LLMError as exc:
         raise HTTPException(502, f"El modelo no respondió correctamente: {exc}") from exc
 
@@ -124,20 +126,47 @@ def post_task_submission(
     """Ingiere la entrega y corre las 5 capas de verificación. Devuelve el veredicto."""
     from backend.verification.verdict import LegacySuiteError, verify_submission
 
+    from backend.web.verify import verify_web_submission
+
     record = _load(task_id)
     if record.status != "open":
         raise HTTPException(409, f"La tarea no acepta entregas (estado {record.status}); ¿falta aprobar el plan?")
-    if record.draft.profile == "web":
-        raise HTTPException(501, "La verificación del perfil web aún no está implementada")
+    verify = verify_web_submission if record.draft.profile == "web" else verify_submission
     with _ingested(repo, sha, zip_file) as workspace:
         try:
-            report = verify_submission(record, workspace)
+            report = verify(record, workspace)
         except SandboxUnavailable as exc:
             raise HTTPException(503, f"Sandbox no disponible: {exc}") from exc
         except LegacySuiteError as exc:
             raise HTTPException(409, str(exc)) from exc
     save_verdict(task_id, report["submission_id"], report)
     return report
+
+
+@app.get("/tasks/{task_id}/submissions/{submission_id}/evidence/{name}")
+def get_evidence(task_id: str, submission_id: str, name: str) -> FileResponse:
+    """Capturas (S*.png), videos (video-*.webm) y results.json de una verificación web."""
+    if not re.fullmatch(r"(S\d{1,3}\.png|video-(desktop|mobile)(-\d+)?\.webm|results\.json)", name):
+        raise HTTPException(404, "evidencia no encontrada")
+    try:
+        path = task_dir(task_id) / "verdicts" / submission_id / name
+    except KeyError as exc:
+        raise HTTPException(404, "tarea no encontrada") from exc
+    if not re.fullmatch(r"[0-9a-f]{32}", submission_id) or not path.is_file():
+        raise HTTPException(404, "evidencia no encontrada")
+    return FileResponse(path)
+
+
+@app.post("/mockups", status_code=201)
+def post_mockup(file: Annotated[UploadFile, File()]) -> dict:
+    """Sube un mockup (PNG o JPEG). Devuelve su sha256 para referenciarlo en el contrato web."""
+    from backend.web.mockups import MAX_BYTES, MockupError, save_mockup
+
+    data = file.file.read(MAX_BYTES + 1)
+    try:
+        return save_mockup(data)
+    except MockupError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 def _load(task_id: str):

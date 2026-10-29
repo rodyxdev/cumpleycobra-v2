@@ -19,6 +19,20 @@ Catálogo de chequeos estáticos (static_check.kind y significado de args):
 - ruff_clean: args = códigos o prefijos de reglas de ruff ("F", "E9").
 """
 
+WEB_CATALOG = """\
+Perfil "web" (landing, sitio estático o proyecto Node con build):
+- interface.symbols = [], examples = [] y web = {pages: rutas a capturar, mockups: los adjuntos del cliente
+  con su id y sha256 tal como vienen en el pedido}.
+- Criterios "test" = comprobables con un navegador; cada uno lleva web_check {kind, page, args}:
+  text_present [texto] · title_contains [texto] · element_visible [rol ARIA, nombre] ·
+  link_navigates [nombre del link, "#ancla" o "/ruta"] ·
+  form_submits [endpoint, texto de confirmación, "Etiqueta=valor de prueba", ..., "boton=Nombre del botón"] ·
+  no_horizontal_overflow [].
+- Criterios "visual" = solo lo que exige mirar (parecido al mockup, legibilidad en móvil); los juzga un
+  modelo con capturas. Todo lo que se pueda comprobar con el DOM debe ser "test", no "visual".
+- allowed_dependencies = paquetes npm permitidos.
+"""
+
 DRAFT_SYSTEM = """\
 Eres un líder técnico que convierte un pedido de software en un contrato de aceptación
 verificable por máquina. Responde en el idioma del pedido.
@@ -44,7 +58,7 @@ Reglas del contrato:
   Si el cliente da ejemplos, inclúyelos literalmente.
 - No inventes requisitos que el cliente no pidió salvo validaciones de entrada obvias, y márcalas required=false.
 
-""" + STATIC_CATALOG
+""" + STATIC_CATALOG + "\n" + WEB_CATALOG
 
 REVIEW_SYSTEM = """\
 Eres un auditor de contratos de aceptación de software. Revisas un borrador ANTES de que se
@@ -64,15 +78,26 @@ ok = true solo si no hay bloqueantes.
 """ + STATIC_CATALOG
 
 
-def draft_task(request: str) -> TaskDraft:
-    return structured_completion(
+def draft_task(request: str, mockups: list[dict] | None = None) -> TaskDraft:
+    attachments = ""
+    if mockups:
+        attachments = "\nMockups adjuntos (id, sha256, descripción):\n" + "\n".join(
+            f"- {m['id']} {m['sha256']} {m.get('description', '')}" for m in mockups)
+    draft = structured_completion(
         [
             {"role": "system", "content": DRAFT_SYSTEM},
-            {"role": "user", "content": f"Pedido del cliente:\n<<<\n{request}\n>>>"},
+            {"role": "user", "content": f"Pedido del cliente:\n<<<\n{request}\n>>>{attachments}"},
         ],
         TaskDraft,
         schema_name="task_draft",
     )
+    if draft.web and mockups:
+        # Los hashes vienen de los archivos subidos, no de lo que el modelo copió (en una prueba
+        # real los devolvió sin el prefijo "sha256:"). Mockups que el cliente no subió se descartan.
+        uploaded = {m["id"]: m["sha256"] for m in mockups}
+        fixed = [m.model_copy(update={"sha256": uploaded[m.id]}) for m in draft.web.mockups if m.id in uploaded]
+        draft = draft.model_copy(update={"web": draft.web.model_copy(update={"mockups": fixed})})
+    return draft
 
 
 def review_draft(draft: TaskDraft) -> DraftReview:

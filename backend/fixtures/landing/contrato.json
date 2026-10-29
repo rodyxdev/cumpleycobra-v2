@@ -1,0 +1,88 @@
+{
+  "title": "Landing de Huerta Viva con formulario de contacto",
+  "profile": "web",
+  "description": "Landing de una página para Huerta Viva (cajas de verduras orgánicas): cabecera con marca y navegación, sección principal con título y botón de llamada a la acción, sección de servicios con tres tarjetas y formulario de contacto que envía los datos a /api/contacto y muestra una confirmación.",
+  "interface": {
+    "language": "python",
+    "symbols": []
+  },
+  "criteria": [
+    {
+      "id": "C1",
+      "text": "El título principal 'Verduras orgánicas a tu puerta' es visible en escritorio y en móvil.",
+      "type": "test",
+      "required": true,
+      "static_check": null,
+      "web_check": {"kind": "text_present", "page": "/", "args": ["Verduras orgánicas a tu puerta"]}
+    },
+    {
+      "id": "C2",
+      "text": "El título de la pestaña del navegador contiene 'Huerta Viva'.",
+      "type": "test",
+      "required": true,
+      "static_check": null,
+      "web_check": {"kind": "title_contains", "page": "/", "args": ["Huerta Viva"]}
+    },
+    {
+      "id": "C3",
+      "text": "El link 'Contacto' de la navegación lleva a la sección #contacto.",
+      "type": "test",
+      "required": true,
+      "static_check": null,
+      "web_check": {"kind": "link_navigates", "page": "/", "args": ["Contacto", "#contacto"]}
+    },
+    {
+      "id": "C4",
+      "text": "El formulario de contacto (Nombre, Email, Mensaje, botón Enviar) envía un POST a /api/contacto con los datos y muestra '¡Gracias! Te responderemos pronto.'",
+      "type": "test",
+      "required": true,
+      "static_check": null,
+      "web_check": {
+        "kind": "form_submits",
+        "page": "/",
+        "args": ["/api/contacto", "¡Gracias! Te responderemos pronto.", "Nombre=Ana Pérez", "Email=ana@example.com", "Mensaje=Quiero una caja semanal", "boton=Enviar"]
+      }
+    },
+    {
+      "id": "C5",
+      "text": "A 390 px de ancho la página no tiene scroll horizontal.",
+      "type": "test",
+      "required": true,
+      "static_check": null,
+      "web_check": {"kind": "no_horizontal_overflow", "page": "/", "args": []}
+    },
+    {
+      "id": "C6",
+      "text": "El botón 'Enviar' es visible y cabe en pantalla tanto en escritorio como en móvil.",
+      "type": "test",
+      "required": true,
+      "static_check": null,
+      "web_check": {"kind": "element_visible", "page": "/", "args": ["button", "Enviar"]}
+    },
+    {
+      "id": "C7",
+      "text": "En escritorio la página sigue la estructura del mockup M1: cabecera con marca a la izquierda y navegación a la derecha, sección principal con título y botón, tres tarjetas de servicios en una fila y el formulario de contacto debajo.",
+      "type": "visual",
+      "required": true,
+      "static_check": null,
+      "web_check": null
+    },
+    {
+      "id": "C8",
+      "text": "En móvil (390 px) el contenido se apila en una sola columna como en el mockup M2, con texto legible y sin elementos cortados ni superpuestos.",
+      "type": "visual",
+      "required": true,
+      "static_check": null,
+      "web_check": null
+    }
+  ],
+  "allowed_dependencies": ["escape-html"],
+  "examples": [],
+  "web": {
+    "pages": ["/"],
+    "mockups": [
+      {"id": "M1", "sha256": "sha256:802f96d1c810f1e74197731debf2f65e1acc2e0b74df85720f2396cbbb6f0a7e", "page": "/", "viewport": "desktop", "description": "Wireframe de escritorio (1440 px)"},
+      {"id": "M2", "sha256": "sha256:ae210ba16af6777c742abd19fcc1d2fb1897a13309adeb71f06f610d19d18d61", "page": "/", "viewport": "mobile", "description": "Wireframe de móvil (390 px)"}
+    ]
+  }
+}

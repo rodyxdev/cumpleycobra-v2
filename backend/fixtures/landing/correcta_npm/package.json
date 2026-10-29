@@ -1,0 +1,13 @@
+{
+  "name": "huerta-viva-landing",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Landing de Huerta Viva (build estático)",
+  "scripts": {
+    "build": "node build.js",
+    "postinstall": "node -e \"require('fs').writeFileSync('/tmp/postinstall-ejecutado', 'si')\""
+  },
+  "dependencies": {
+    "escape-html": "1.0.3"
+  }
+}
