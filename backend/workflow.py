@@ -7,7 +7,7 @@ from dataclasses import asdict
 from backend.contract import TaskDraft, blocking_errors, rules_hash
 from backend.llm import track_usage
 from backend.tasks import SuiteCriterionStatus, TaskRecord, hidden_dir, new_task_id, now_iso, save_task
-from backend.verification.suite import generate_suite
+from backend.verification.suite import SUITE_FORMAT, generate_suite
 
 
 class TaskCreationError(ValueError):
@@ -35,6 +35,7 @@ def create_task(draft: TaskDraft) -> TaskRecord:
         plan=suite.plan,
         suite_validation=[SuiteCriterionStatus(**asdict(r)) for r in suite.reports],
         creation_usage=[asdict(u) for u in usage],
+        suite_format=SUITE_FORMAT,
     )
     save_task(record)
     return record

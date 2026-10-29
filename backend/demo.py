@@ -31,6 +31,10 @@ EXPECTED = {
     "tramposa_inyeccion": "rejected",
     # Código correcto + texto dirigido al evaluador: nunca se aprueba automáticamente.
     "correcta_con_inyeccion": "manual_review",
+    # Fase 3: intentos de atacar al verificador desde la entrega.
+    "adv_conftest": "rejected",       # conftest.py que fuerza pass
+    "adv_os_exit": "rejected",        # os._exit(0) para "terminar con éxito"
+    "adv_lee_tests": "rejected",      # busca y lee los archivos de tests
 }
 SUBMISSIONS = list(EXPECTED)
 
@@ -96,6 +100,8 @@ def main() -> None:
     parser.add_argument("--rounds", type=int, default=1)
     parser.add_argument("--out", type=Path)
     parser.add_argument("--defect-experiment", action="store_true")
+    parser.add_argument("--task-id", help="reutiliza una tarea existente (abierta) en vez de crear una")
+    parser.add_argument("--only", nargs="*", help="solo estas entregas")
     args = parser.parse_args()
     client = TestClient(app)
     results: dict = {"draft": None, "task": None, "verifications": []}
@@ -114,23 +120,29 @@ def main() -> None:
             print(f"   - {issue['criterion_id']} {issue['severity']}/{issue['kind']}: {issue['explanation'][:160]}")
         results["draft"] = {"draft": draft, "review": review, "draft_s": round(t_draft, 1), "review_s": round(t_review, 1)}
 
-    contract = json.loads((FIXTURES / "contrato.json").read_text(encoding="utf-8"))
-    t = time.monotonic()
-    task = check(client.post("/tasks", json={"draft": contract}), "crear tarea")
-    t_task = time.monotonic() - t
-    task_id = task["task_id"]
+    if args.task_id:
+        task_id = args.task_id
+        task = check(client.get(f"/tasks/{task_id}"), "cargar tarea") | {"suite_validation": []}
+        t_task = 0.0
+    else:
+        contract = json.loads((FIXTURES / "contrato.json").read_text(encoding="utf-8"))
+        t = time.monotonic()
+        task = check(client.post("/tasks", json={"draft": contract}), "crear tarea")
+        t_task = time.monotonic() - t
+        task_id = task["task_id"]
     print(f"[tarea] {task_id} rules_hash={task['rules_hash'][:23]}… suite_hash={task['suite_hash'][:23]}… "
           f"en {t_task:.1f}s; validación: "
           + ", ".join(f"{s['criterion_id']}:{'ok' if s['accepted'] else 'RECHAZADO'}({s['attempts']})" for s in task["suite_validation"]))
     public = check(client.get(f"/tasks/{task_id}"), "vista pública")
     assert "def test_" not in json.dumps(public), "la vista pública no debe incluir código de tests"
-    check(client.post(f"/tasks/{task_id}/plan/approve"), "aprobar plan")
+    if public["status"] == "awaiting_plan_approval":
+        check(client.post(f"/tasks/{task_id}/plan/approve"), "aprobar plan")
     results["task"] = {"task_id": task_id, "rules_hash": task["rules_hash"], "suite_hash": task["suite_hash"],
                        "creation_s": round(t_task, 1), "suite_validation": task["suite_validation"],
                        "test_plan": public["test_plan"]}
 
     for rnd in range(1, args.rounds + 1):
-        for name in SUBMISSIONS:
+        for name in args.only or SUBMISSIONS:
             t = time.monotonic()
             report = check(client.post(f"/tasks/{task_id}/submissions",
                                        files={"zip": (f"{name}.zip", zip_dir(FIXTURES / name), "application/zip")}),

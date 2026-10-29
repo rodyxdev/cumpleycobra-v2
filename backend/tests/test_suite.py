@@ -77,7 +77,7 @@ def test_static_problems():
 
 def run_with(outcomes_xml: bytes | None) -> SuiteRun:
     sb = SandboxResult(1, "", "boom", False, False, 1.0, False, False, "img", "pytest")
-    return SuiteRun(sb, parse_junit(outcomes_xml) if outcomes_xml else [], outcomes_xml is not None)
+    return SuiteRun(sb, parse_junit(outcomes_xml) if outcomes_xml else [], outcomes_xml is not None, "", {})
 
 
 def xml(*cases: str) -> bytes:
@@ -126,7 +126,7 @@ def test_generate_suite_regenerates_only_defective_files(tmp_path, monkeypatch):
         return GeneratedTestFile(criterion_id=criterion.id, plan=["Verifica algo."],
                                  code=f"def {name}():\n    assert True\n")
 
-    def fake_run(workspace, suite_dir, **kw):
+    def fake_run(workspace, suite_dir, draft, **kw):
         cases = []
         for f in sorted(suite_dir.glob("test_c*.py")):
             stem = f.stem
@@ -154,7 +154,7 @@ def test_generate_suite_gives_up_after_max_regenerations(tmp_path, monkeypatch):
     def always_trivial(d, criterion, previous, problems):
         return GeneratedTestFile(criterion_id=criterion.id, plan=["x"], code="def test_trivial():\n    assert True\n")
 
-    def fake_run(workspace, suite_dir, **kw):
+    def fake_run(workspace, suite_dir, draft, **kw):
         tmpl = PASS if workspace.name == "stub" else FAIL
         return run_with(xml(*[tmpl.replace("test_c1", f.stem).format(n="t") for f in suite_dir.glob("test_c*.py")]))
 

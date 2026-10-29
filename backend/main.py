@@ -122,7 +122,7 @@ def post_task_submission(
     zip_file: Annotated[UploadFile | None, File(alias="zip")] = None,
 ) -> dict:
     """Ingiere la entrega y corre las 5 capas de verificación. Devuelve el veredicto."""
-    from backend.verification.verdict import verify_submission
+    from backend.verification.verdict import LegacySuiteError, verify_submission
 
     record = _load(task_id)
     if record.status != "open":
@@ -134,6 +134,8 @@ def post_task_submission(
             report = verify_submission(record, workspace)
         except SandboxUnavailable as exc:
             raise HTTPException(503, f"Sandbox no disponible: {exc}") from exc
+        except LegacySuiteError as exc:
+            raise HTTPException(409, str(exc)) from exc
     save_verdict(task_id, report["submission_id"], report)
     return report
 

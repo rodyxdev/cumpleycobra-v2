@@ -88,7 +88,7 @@ class SandboxResult:
     oom_killed: bool
     image: str
     command: str
-    network: bool = False
+    network: bool | str = False
     output_files: list[str] = field(default_factory=list)
 
 
@@ -141,22 +141,35 @@ def ensure_image(image: str, pull_timeout_s: float = 600) -> None:
         raise SandboxUnavailable(f"no se pudo descargar {image}: {pulled.stderr.strip()[-300:]}")
 
 
+def _network_arg(network: bool | str) -> str:
+    if isinstance(network, str):
+        return network  # red con nombre (p. ej. una red interna de Docker)
+    return "bridge" if network else "none"
+
+
 def build_docker_args(
     name: str,
     image: str,
-    workspace: Path,
+    workspace: Path | None,
     limits: SandboxLimits,
     *,
-    network: bool = False,
+    network: bool | str = False,
     mounts: tuple[Mount, ...] = (),
     env: dict[str, str] | None = None,
+    entrypoint: list[str] | None = None,
+    extra: list[str] | None = None,
+    tmp_size: str = "64m",
 ) -> list[str]:
-    """Argumentos de `docker run` para el contenedor en espera."""
+    """Argumentos de `docker run --detach`.
+
+    Sin `entrypoint`, el contenedor queda en espera (`sleep`) para usarlo con `docker exec`.
+    Sin `workspace`, la entrega no se monta (contenedores del lado confiable).
+    """
     args = [
         "docker", "run", "--detach",
         "--name", name,
         "--pull", "never",
-        "--network", "bridge" if network else "none",
+        "--network", _network_arg(network),
         "--cpus", str(limits.cpus),
         "--memory", limits.memory,
         "--memory-swap", limits.memory,
@@ -165,17 +178,19 @@ def build_docker_args(
         "--cap-drop", "ALL",
         "--security-opt", "no-new-privileges",
         "--read-only",
-        "--tmpfs", "/tmp:rw,nosuid,nodev,size=64m",
+        "--tmpfs", f"/tmp:rw,nosuid,nodev,size={tmp_size}",
         "--mount", f"type=tmpfs,target={OUTPUT_MOUNT},tmpfs-size={limits.out_tmpfs_bytes},tmpfs-mode=1777",
-        "--mount", Mount(str(workspace), WORKSPACE_MOUNT).arg(),
     ]
+    if workspace is not None:
+        args += ["--mount", Mount(str(workspace), WORKSPACE_MOUNT).arg()]
     for m in mounts:
         args += ["--mount", m.arg()]
-    args += ["--workdir", WORKSPACE_MOUNT]
+    args += ["--workdir", WORKSPACE_MOUNT if workspace is not None else "/tmp"]
     merged_env = {"HOME": "/tmp", "PYTHONDONTWRITEBYTECODE": "1", "OUTPUT_DIR": OUTPUT_MOUNT, **(env or {})}
     for key, value in merged_env.items():
         args += ["--env", f"{key}={value}"]
-    args += [image, "sleep", str(int(limits.timeout_s) + _IDLE_GRACE_S)]
+    args += extra or []
+    args += [image, *(entrypoint or ["sleep", str(int(limits.timeout_s) + _IDLE_GRACE_S)])]
     return args
 
 
@@ -193,15 +208,17 @@ def _extract_out(name: str, output_dir: Path) -> list[str]:
 
 
 def run_in_sandbox(
-    workspace: Path,
+    workspace: Path | None,
     command: str,
     output_dir: Path,
     *,
     image: str | None = None,
     limits: SandboxLimits | None = None,
-    network: bool = False,
+    network: bool | str = False,
     mounts: tuple[Mount, ...] = (),
     env: dict[str, str] | None = None,
+    extra: list[str] | None = None,
+    tmp_size: str = "64m",
 ) -> SandboxResult:
     """Ejecuta `command` (vía `sh -c`) dentro de un contenedor aislado."""
     image = image or get_settings().sandbox_image
@@ -209,7 +226,8 @@ def run_in_sandbox(
     ensure_image(image)
 
     name = f"cc-sbx-{uuid.uuid4().hex[:12]}"
-    args = build_docker_args(name, image, workspace, limits, network=network, mounts=mounts, env=env)
+    args = build_docker_args(name, image, workspace, limits, network=network, mounts=mounts, env=env,
+                             extra=extra, tmp_size=tmp_size)
     try:
         created = _docker(args[1:], timeout_s=60)
         if created.returncode != 0:
@@ -260,3 +278,60 @@ def run_in_sandbox(
         )
     finally:
         _docker(["rm", "--force", name])
+
+
+@dataclass
+class Service:
+    """Contenedor de larga vida (p. ej. la entrega levantada como servidor)."""
+
+    name: str
+    image: str
+
+    def logs(self, limit: int = 16 * 1024) -> str:
+        proc = _docker(["logs", "--tail", "400", self.name], timeout_s=30)
+        return (proc.stdout + proc.stderr)[-limit:]
+
+    def state(self) -> dict:
+        fmt = "{{.State.Running}}|{{.State.ExitCode}}|{{.State.OOMKilled}}"
+        raw = _docker(["inspect", "--format", fmt, self.name]).stdout.strip().split("|")
+        if len(raw) != 3:
+            return {"running": False, "exit_code": None, "oom_killed": False}
+        return {"running": raw[0] == "true", "exit_code": int(raw[1]), "oom_killed": raw[2] == "true"}
+
+    def remove(self) -> None:
+        _docker(["rm", "--force", self.name])
+
+
+def start_service(
+    workspace: Path | None,
+    entrypoint: list[str],
+    *,
+    image: str,
+    limits: SandboxLimits,
+    network: str,
+    alias: str,
+    mounts: tuple[Mount, ...] = (),
+    env: dict[str, str] | None = None,
+) -> Service:
+    ensure_image(image)
+    name = f"cc-svc-{uuid.uuid4().hex[:12]}"
+    args = build_docker_args(name, image, workspace, limits, network=network, mounts=mounts, env=env,
+                             entrypoint=entrypoint, extra=["--network-alias", alias])
+    created = _docker(args[1:], timeout_s=60)
+    if created.returncode != 0:
+        _docker(["rm", "--force", name])
+        raise SandboxUnavailable(f"no se pudo crear el servicio: {created.stderr.strip()[-300:]}")
+    return Service(name, image)
+
+
+class InternalNetwork:
+    """Red Docker `--internal`: los contenedores se ven entre sí pero no salen a internet."""
+
+    def __init__(self):
+        self.name = f"cc-net-{uuid.uuid4().hex[:12]}"
+        created = _docker(["network", "create", "--internal", self.name])
+        if created.returncode != 0:
+            raise SandboxUnavailable(f"no se pudo crear la red interna: {created.stderr.strip()[-300:]}")
+
+    def remove(self) -> None:
+        _docker(["network", "rm", self.name])

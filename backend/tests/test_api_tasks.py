@@ -95,3 +95,14 @@ def test_llm_failure_maps_to_502(client, monkeypatch):
 
     monkeypatch.setattr(main, "draft_task", boom)
     assert client.post("/tasks/draft", json={"request": "Necesito una función de ventas"}).status_code == 502
+
+
+def test_legacy_suite_is_refused(client, fake_suite):
+    from backend.tasks import load_task, save_task
+
+    task = create(client)
+    record = load_task(task["task_id"])
+    save_task(record.model_copy(update={"suite_format": "inprocess/v1", "status": "open"}))
+    data = make_zip({"ventas.py": (FIXTURES / "correcta" / "ventas.py").read_bytes()})
+    resp = client.post(f"/tasks/{task['task_id']}/submissions", files={"zip": ("e.zip", data, "application/zip")})
+    assert resp.status_code == 409 and "migrate" in resp.text

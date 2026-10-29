@@ -40,6 +40,9 @@ class TaskRecord(BaseModel):
     plan: dict[str, list[str]]
     suite_validation: list[SuiteCriterionStatus]
     creation_usage: list[dict]
+    # "inprocess/v1" = suite de la fase 2 (importaba la entrega); "blackbox/v1" = fase 3.
+    suite_format: str = "inprocess/v1"
+    migrations: list[dict] = []
 
     def public_view(self) -> dict:
         """Lo que puede ver el freelancer: contrato y plan, nunca el código de los tests."""

@@ -60,11 +60,13 @@ def _is_own_test(rel: str) -> bool:
     return "tests" in parts[:-1] or name.startswith("test_") or name.endswith("_test.py") or name == "conftest.py"
 
 
-def load_sources(workspace: Path) -> list[SourceFile]:
+def load_sources(workspace: Path, *, include_tests: bool = False) -> list[SourceFile]:
+    """Fuentes .py de la entrega. `include_tests=True` agrega tests propios y conftest.py
+    (no se ejecutan nunca, pero se escanean en busca de manipulación)."""
     sources = []
     for path in sorted(workspace.rglob("*.py")):
         rel = path.relative_to(workspace).as_posix()
-        if ".git" in rel.split("/") or _is_own_test(rel):
+        if ".git" in rel.split("/") or (_is_own_test(rel) and not include_tests):
             continue
         text = path.read_text(encoding="utf-8", errors="replace")
         try:
@@ -327,6 +329,9 @@ def _tamper_signals(src: SourceFile) -> list[Signal]:
         if any(module == m or module.startswith(m + ".") for m in _TAMPER_MODULES):
             signals.append(Signal("tampering", src.rel, line, _line(src, line), f"importa {module} desde el código entregado"))
     for node in ast.walk(src.tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("pytest_"):
+            signals.append(Signal("tampering", src.rel, node.lineno, _line(src, node.lineno),
+                                  f"define un hook de pytest ({node.name})"))
         name = _dotted(node.func) if isinstance(node, ast.Call) else None
         if name:
             full = _resolve(name, aliases)
@@ -378,6 +383,25 @@ def _cheating_signals(src: SourceFile, draft: TaskDraft) -> list[Signal]:
             if value in outputs:
                 signals.append(Signal("cheating", src.rel, node.lineno, _line(src, node.lineno),
                                       "contiene literalmente la salida esperada de un ejemplo público"))
+    return signals
+
+
+def scan_text_for_injection(text: str) -> str | None:
+    """Fragmento que parece dirigido al evaluador, o None."""
+    for pattern in _INJECTION_PATTERNS:
+        m = pattern.search(text)
+        if m:
+            return m.group(0)[:160]
+    return None
+
+
+def output_signals(outcomes) -> list[Signal]:
+    """Inyección en lo que la entrega devolvió (mensajes de excepción, valores) y llegó a los tests."""
+    signals = []
+    for o in outcomes:
+        hit = scan_text_for_injection(o.message)
+        if hit:
+            signals.append(Signal("injection", o.nodeid, 0, hit, "texto dirigido al evaluador en la salida de la entrega"))
     return signals
 
 

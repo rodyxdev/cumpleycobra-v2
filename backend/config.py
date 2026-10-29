@@ -52,6 +52,8 @@ class Settings:
     task_store_dir: Path
     suite_max_regenerations: int
     hidden_test_timeout_s: int
+    call_timeout_s: float
+    blackbox_suite_timeout_s: float
 
 
 def get_settings() -> Settings:
@@ -80,5 +82,7 @@ def get_settings() -> Settings:
         runner_image=os.getenv("RUNNER_IMAGE") or None,
         task_store_dir=Path(os.getenv("TASK_STORE_DIR", str(work_dir / "tasks"))),
         suite_max_regenerations=_int("SUITE_MAX_REGENERATIONS", 2),
-        hidden_test_timeout_s=_int("HIDDEN_TEST_TIMEOUT_S", 10),
+        hidden_test_timeout_s=_int("HIDDEN_TEST_TIMEOUT_S", 30),
+        call_timeout_s=_float("CALL_TIMEOUT_S", 5.0),
+        blackbox_suite_timeout_s=_float("BLACKBOX_SUITE_TIMEOUT_S", 300.0),
     )

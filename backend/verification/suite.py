@@ -25,54 +25,27 @@ from backend.canonical import canonical_hash
 from backend.config import get_settings
 from backend.contract.models import Criterion, Interface, TaskDraft
 from backend.llm import structured_completion
-from backend.sandbox import Mount, SandboxLimits, SandboxResult, ensure_runner_image, run_in_sandbox
-from backend.verification.junit import TestOutcome, criterion_for_file, parse_junit, hidden_test_filename
+from backend.blackbox import BlackboxRun, run_blackbox
+from backend.sandbox import Mount
+from backend.verification.junit import TestOutcome, criterion_for_file, hidden_test_filename
 
-HIDDEN_MOUNT = "/hidden"
+SUITE_FORMAT = "blackbox/v1"
 
-# Archivos de infraestructura que escribimos nosotros (no el modelo ni el freelancer).
-CONFTEST = '''\
-"""Infraestructura de Cumple&Cobra (no generada por el modelo)."""
-import asyncio
+# Infraestructura que escribimos nosotros (no el modelo ni el freelancer). Corre en el
+# contenedor CONFIABLE, que no monta la entrega: los tests solo la alcanzan por cc_channel.
+CONFTEST = '''"""Infraestructura de Cumple&Cobra (no generada por el modelo). Lado confiable."""
 import sys
 
-import pytest
-
-# Al final de sys.path: la biblioteca estándar y pytest siempre ganan a un módulo
-# del freelancer con el mismo nombre.
-for _path in ("/workspace", "/deps"):
-    if _path not in sys.path:
-        sys.path.append(_path)
+sys.path.insert(0, "/cc")
+import cc_channel  # noqa: E402
 
 
-@pytest.fixture
-def call_api():
-    """Hace una petición HTTP a la app ASGI de la entrega (perfil api) sin red."""
-    import httpx
-
-    def _call(app, method, url, **kwargs):
-        async def go():
-            transport = httpx.ASGITransport(app=app)
-            async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
-                return await client.request(method, url, **kwargs)
-        return asyncio.run(go())
-
-    return _call
+def pytest_sessionstart(session):
+    if not cc_channel.wait_ready(20.0):
+        print("AVISO: la entrega no aceptó conexiones en 20 s", file=sys.stderr)
 '''
 
 PYTEST_INI = "[pytest]\njunit_family = xunit1\n"
-
-
-def pytest_command(timeout_per_test: int) -> str:
-    # cd /tmp + `python -I`: el directorio actual y PYTHONPATH no entran en sys.path, así que
-    # un `pytest.py` en el workspace no puede suplantar a pytest.
-    return (
-        f"cd /tmp && python -I -m pytest {HIDDEN_MOUNT} -c {HIDDEN_MOUNT}/pytest.ini "
-        f"--rootdir={HIDDEN_MOUNT} -p no:cacheprovider -q -rN --timeout={timeout_per_test} "
-        # Sin esto, un archivo que no colecta interrumpe toda la suite.
-        "--continue-on-collection-errors "
-        "--junitxml=/out/junit.xml"
-    )
 
 
 class GeneratedTestFile(BaseModel):
@@ -87,10 +60,17 @@ Eres un ingeniero de QA que escribe tests de aceptación OCULTOS. El freelancer 
 código; solo verá el plan. Escribes un único archivo pytest para UN criterio del contrato.
 
 Reglas:
-- Importa solo lo que declara la interfaz (p. ej. `from ventas import resumir_ventas`), pytest y
-  la biblioteca estándar. Nada de hypothesis ni otras librerías.
-- Perfil "api": no importes clientes HTTP; usa la fixture `call_api(app, method, url, json=...)`,
-  que devuelve un httpx.Response, con `from <modulo> import <app>`.
+- La entrega corre en OTRO contenedor; NUNCA la importes. Solo puedes importar pytest, la
+  biblioteca estándar y `cc_channel`:
+  * Perfil "script": `from cc_channel import remote` y luego, a nivel de módulo,
+    `resumir_ventas = remote("ventas", "resumir_ventas")` (módulo y nombre de la interfaz).
+    Los argumentos y el resultado viajan serializados: se conservan int, float, str, bool, None,
+    list, tuple, dict, set y bytes; no hay identidad de objetos ni mutación visible de argumentos.
+    Las excepciones builtin (ValueError, KeyError, ...) se re-lanzan con el mismo tipo y mensaje.
+    Nunca uses `pytest.raises(Exception)` ni `BaseException`: indica el tipo concreto.
+  * Perfil "api": `from cc_channel import api`; `api.get("/ruta")`, `api.post("/ruta", json={...})`
+    devuelven un httpx.Response. La app ya está levantada; no la importes.
+  Nada de hypothesis ni otras librerías.
 - Entre 3 y 8 funciones `test_...`, cada una con un docstring de una línea que diga qué verifica.
 - Prueba SOLO el criterio indicado; usa los otros criterios solo como contexto.
 - Cada valor esperado debe deducirse con certeza del contrato o de sus ejemplos. Si haces
@@ -154,28 +134,12 @@ def suite_hash(files: dict[str, str]) -> str:
     return canonical_hash({"conftest.py": CONFTEST, "pytest.ini": PYTEST_INI, **files})
 
 
-@dataclass
-class SuiteRun:
-    sandbox: SandboxResult
-    outcomes: list[TestOutcome]
-    report_found: bool
+SuiteRun = BlackboxRun  # alias: resultado de correr la suite
 
 
-def run_suite(workspace: Path, suite_dir: Path, *, deps_mount: Mount | None = None) -> SuiteRun:
-    s = get_settings()
-    image = ensure_runner_image()
-    mounts = [Mount(str(suite_dir), HIDDEN_MOUNT)]
-    if deps_mount:
-        mounts.append(deps_mount)
-    with tempfile.TemporaryDirectory(prefix="cc-out-") as tmp:
-        out = Path(tmp)
-        result = run_in_sandbox(
-            workspace, pytest_command(s.hidden_test_timeout_s), out,
-            image=image, limits=SandboxLimits.from_settings(), mounts=tuple(mounts),
-        )
-        report = out / "junit.xml"
-        outcomes = parse_junit(report.read_bytes()) if report.exists() else []
-        return SuiteRun(sandbox=result, outcomes=outcomes, report_found=report.exists())
+def run_suite(workspace: Path, suite_dir: Path, draft: TaskDraft, *, deps_mount: Mount | None = None) -> BlackboxRun:
+    """Corre la suite oculta en modo caja negra contra `workspace`."""
+    return run_blackbox(workspace, suite_dir, draft, deps_mount=deps_mount)
 
 
 def _test_function_names(code: str) -> list[str]:
@@ -288,8 +252,8 @@ def generate_suite(draft: TaskDraft, dest: Path, max_regenerations: int | None =
             files = {hidden_test_filename(cid): g.code for cid, g in generated.items() if not static_problems(g.code)}
             suite_dir = tmp / f"round{_round}"
             write_suite_dir(suite_dir, files)
-            empty_run = run_suite(empty_ws, suite_dir)
-            stub_run = run_suite(stub_ws, suite_dir)
+            empty_run = run_suite(empty_ws, suite_dir, draft)
+            stub_run = run_suite(stub_ws, suite_dir, draft)
             for c in pending:
                 if not problems[c.id]:
                     problems[c.id] = validation_problems(hidden_test_filename(c.id), empty_run, stub_run)

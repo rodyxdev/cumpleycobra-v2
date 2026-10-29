@@ -29,8 +29,15 @@ from backend.tasks import TaskRecord, hidden_dir
 from backend.verification.hygiene import HygieneReport, check_hygiene
 from backend.verification.judge import EvidenceChecker, JudgeOutput, judge_submission, submission_files
 from backend.verification.junit import TestOutcome
-from backend.verification.static import Signal, StaticResult, collect_signals, load_sources, run_static_check
-from backend.verification.suite import outcomes_by_criterion, run_suite
+from backend.verification.static import (
+    Signal,
+    StaticResult,
+    collect_signals,
+    load_sources,
+    output_signals,
+    run_static_check,
+)
+from backend.verification.suite import SUITE_FORMAT, outcomes_by_criterion, run_suite
 
 VERDICT_SCHEMA = "cumpleycobra/verdict/v1"
 Status = Literal["pass", "fail", "manual_review", "not_evaluated"]
@@ -182,8 +189,14 @@ def verdict_payload(task: TaskRecord, workspace_hash: str, decision: Decision) -
     }
 
 
+class LegacySuiteError(RuntimeError):
+    """La suite de la tarea es de la fase 2 (importaba la entrega): hay que migrarla."""
+
+
 def verify_submission(task: TaskRecord, workspace: Workspace) -> dict:
     """Ejecuta las 5 capas sobre una entrega ya ingerida y devuelve el reporte completo."""
+    if task.suite_format != SUITE_FORMAT:
+        raise LegacySuiteError(f"suite en formato {task.suite_format}; ejecutar backend.blackbox.migrate")
     draft = task.draft
     timings: dict[str, float] = {}
     t0 = time.monotonic()
@@ -198,7 +211,7 @@ def verify_submission(task: TaskRecord, workspace: Workspace) -> dict:
         t = lap("hygiene", t0)
         sources = load_sources(workspace.path)
         static_results = [run_static_check(c, sources, draft, workspace.path) for c in draft.criteria if c.type == "static"]
-        signals = collect_signals(sources, draft)
+        signals = collect_signals(load_sources(workspace.path, include_tests=True), draft)
         t = lap("static", t)
 
         build = outcomes = test_run = test_run_error = judge = checker = None
@@ -211,9 +224,10 @@ def verify_submission(task: TaskRecord, workspace: Workspace) -> dict:
                     build = build_dependencies(hygiene.requirements, volume, image)
                     t = lap("build", t)
                 if build is None or build.exit_code == 0:
-                    test_run = run_suite(workspace.path, hidden_dir(task.task_id),
+                    test_run = run_suite(workspace.path, hidden_dir(task.task_id), draft,
                                          deps_mount=volume.mount() if volume else None)
                     outcomes = test_run.outcomes
+                    signals = signals + output_signals(outcomes)
                     if test_run.sandbox.timed_out:
                         test_run_error = "la suite superó el tiempo máximo (¿bucle infinito al importar?)"
                     elif not test_run.report_found:
@@ -256,6 +270,8 @@ def verify_submission(task: TaskRecord, workspace: Workspace) -> dict:
         },
         "build": _sandbox_summary(build),
         "test_run": _sandbox_summary(test_run.sandbox) if test_run else None,
+        # Lo que la entrega escribió en stdout/stderr: texto NO confiable, solo como evidencia.
+        "sut": {"state": test_run.sut_state, "logs_tail": test_run.sut_logs[-3000:]} if test_run else None,
         "timings_s": timings,
         "llm_usage": [asdict(u) for u in usage],
     }
