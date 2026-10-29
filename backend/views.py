@@ -91,6 +91,7 @@ def client_view(report: dict) -> dict:
     signal_kinds = sorted({(s["kind"], _generic_signal(s["kind"])) for s in report.get("signals", [])})
     return {
         "submission_id": report["submission_id"],
+        "received_at": report.get("received_at"),
         "profile": profile,
         "verdict_hash": report["verdict_hash"],
         "verdict": copy.deepcopy(report["verdict"]),

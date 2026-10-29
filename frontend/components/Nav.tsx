@@ -62,7 +62,7 @@ export function Nav() {
               >
                 {state?.all.map((s) => (
                   <option key={s.userId} value={s.userId}>
-                    {s.name}{s.wallet ? ` (${s.wallet} wallet)` : ""}
+                    {s.name} · {s.userId.slice(0, 4)}{s.wallet ? ` (${s.wallet} wallet)` : ""}
                   </option>
                 ))}
               </select>

@@ -103,10 +103,10 @@ def user_from_token(token: str) -> User | None:
 
 def current_user(authorization: Annotated[str | None, Header()] = None) -> User:
     if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(401, "Falta el token (Authorization: Bearer ...)")
+        raise HTTPException(401, "Missing token (Authorization: Bearer ...)")
     user = user_from_token(authorization.removeprefix("Bearer ").strip())
     if user is None:
-        raise HTTPException(401, "Token inválido")
+        raise HTTPException(401, "Invalid token")
     return user
 
 

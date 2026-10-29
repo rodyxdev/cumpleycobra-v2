@@ -72,7 +72,7 @@ app.add_middleware(
 def escrow_service():
     """Punto único para obtener el cliente del contrato (los tests lo sustituyen)."""
     if not chain.configured():
-        raise HTTPException(503, "El escrow no está configurado (ESCROW_CONTRACT_ID / ARBITER_SECRET)")
+        raise HTTPException(503, "Escrow is not configured (ESCROW_CONTRACT_ID / ARBITER_SECRET)")
     return chain.EscrowClient()
 
 
@@ -121,7 +121,7 @@ def use_demo_wallet(body: DemoWalletRequest, user: CurrentUser) -> dict:
     """Asocia al usuario la billetera de prueba (testnet) que el backend puede firmar por él."""
     address = chain.EscrowClient.demo_addresses().get(body.role)
     if not address:
-        raise HTTPException(503, "No hay billetera de demo configurada")
+        raise HTTPException(503, "No demo wallet is configured")
     return update_address(user.user_id, address).model_dump()
 
 
@@ -129,8 +129,8 @@ def _demo_signer(user: User, role: str):
     """Firmante de demo si la dirección del usuario es la billetera de prueba de ese rol."""
     addresses = chain.EscrowClient.demo_addresses()
     if not user.stellar_address or user.stellar_address != addresses.get(role):
-        raise HTTPException(409, "Tu dirección no es una billetera de demo: firma la transacción con tu billetera "
-                                 "(POST .../escrow/prepare y .../escrow/submit)")
+        raise HTTPException(409, "Your address is not a demo wallet the backend can sign for; "
+                                 "use one of the demo accounts")
     return chain.EscrowClient.signer(role)
 
 
@@ -154,7 +154,7 @@ def post_task_draft(body: TaskRequest, user: CurrentUser) -> TaskDraft:
     try:
         return draft_task(body.request, [m.model_dump() for m in body.mockups])
     except LLMError as exc:
-        raise HTTPException(502, f"El modelo no respondió correctamente: {exc}") from exc
+        raise HTTPException(502, f"The model did not respond correctly: {exc}") from exc
 
 
 @app.post("/tasks/draft/review", response_model=DraftReview)
@@ -163,7 +163,7 @@ def post_task_draft_review(body: ReviewRequest, user: CurrentUser) -> DraftRevie
     try:
         return review_draft(body.draft)
     except LLMError as exc:
-        raise HTTPException(502, f"El modelo no respondió correctamente: {exc}") from exc
+        raise HTTPException(502, f"The model did not respond correctly: {exc}") from exc
 
 
 @app.post("/tasks", status_code=201)
@@ -174,9 +174,9 @@ def post_task(body: ConfirmRequest, user: CurrentUser) -> dict:
     except TaskCreationError as exc:
         raise HTTPException(422, {"errors": exc.errors}) from exc
     except LLMError as exc:
-        raise HTTPException(502, f"El modelo no respondió correctamente: {exc}") from exc
+        raise HTTPException(502, f"The model did not respond correctly: {exc}") from exc
     except SandboxUnavailable as exc:
-        raise HTTPException(503, f"Sandbox no disponible: {exc}") from exc
+        raise HTTPException(503, f"Sandbox unavailable: {exc}") from exc
     record = record.model_copy(update={"client_id": user.user_id})
     save_task(record)
     return {**_task_view(record, user), "suite_validation": [s.model_dump() for s in record.suite_validation]}
@@ -205,7 +205,7 @@ def get_task(task_id: str, user: CurrentUser) -> dict:
     record = _load(task_id)
     role = role_in_task(user, record)
     if role == "visitor" and not (record.status == "open" and record.freelancer_id is None):
-        raise HTTPException(404, "Tarea no encontrada")
+        raise HTTPException(404, "Task not found")
     return _task_view(record, user)
 
 
@@ -213,7 +213,7 @@ def get_task(task_id: str, user: CurrentUser) -> dict:
 def approve_plan(task_id: str, user: CurrentUser) -> dict:
     record = _require(task_id, user, "client")
     if record.status != "awaiting_plan_approval":
-        raise HTTPException(409, f"La tarea está en estado {record.status}")
+        raise HTTPException(409, f"The task is in state {record.status}")
     record = record.model_copy(update={"status": "open"})
     save_task(record)
     return _task_view(record, user)
@@ -230,9 +230,9 @@ class DepositRequest(BaseModel):
 def escrow_deposit(task_id: str, body: DepositRequest, user: CurrentUser) -> dict:
     record = _require(task_id, user, "client")
     if record.status != "open":
-        raise HTTPException(409, "Aprueba el plan de pruebas antes de depositar")
+        raise HTTPException(409, "Approve the test plan before depositing")
     if record.escrow.get("status"):
-        raise HTTPException(409, f"El escrow ya está en estado {record.escrow['status']}")
+        raise HTTPException(409, f"The escrow is already {record.escrow['status']}")
     signer = _demo_signer(user, "client")
     service = escrow_service()
     deadline = int(time.time()) + body.deadline_days * 86400
@@ -253,11 +253,11 @@ def accept_task(task_id: str, user: CurrentUser) -> dict:
     """El freelancer acepta: on-chain queda amarrado a su dirección y desde ahí puede entregar."""
     record = _load(task_id)
     if role_in_task(user, record) == "client":
-        raise HTTPException(409, "El cliente no puede aceptar su propia tarea")
+        raise HTTPException(409, "The client cannot accept their own task")
     if record.freelancer_id or record.status != "open":
-        raise HTTPException(409, "La tarea ya no está disponible")
+        raise HTTPException(409, "The task is no longer available")
     if record.escrow.get("status") != "funded":
-        raise HTTPException(409, "La tarea todavía no tiene depósito")
+        raise HTTPException(409, "The task has not been funded yet")
     signer = _demo_signer(user, "freelancer")
     try:
         tx = escrow_service().accept(signer, task_id)
@@ -287,10 +287,10 @@ def escrow_client_release(task_id: str, user: CurrentUser) -> dict:
     """El cliente libera el pago a mano (p. ej. tras revisar un veredicto en revisión manual)."""
     record = _require(task_id, user, "client")
     if record.escrow.get("status") != "accepted":
-        raise HTTPException(409, "No hay un pago aceptado que liberar")
+        raise HTTPException(409, "There is no accepted payment to release")
     reports = list_verdicts(task_id)
     if not reports:
-        raise HTTPException(409, "Todavía no hay ninguna entrega verificada")
+        raise HTTPException(409, "There is no verified submission yet")
     signer = _demo_signer(user, "client")
     try:
         tx = escrow_service().client_release(signer, task_id)
@@ -317,11 +317,11 @@ def escrow_release(task_id: str, body: ReleaseRequest, user: CurrentUser) -> dic
 def escrow_refund(task_id: str, user: CurrentUser) -> dict:
     record = _require(task_id, user, "client", "freelancer", "arbiter")
     if record.escrow.get("status") not in ("funded", "accepted"):
-        raise HTTPException(409, "No hay depósito que reembolsar")
+        raise HTTPException(409, "There is no deposit to refund")
     try:
         tx = escrow_service().refund(chain.EscrowClient.signer("arbiter"), task_id)
     except chain.EscrowError as exc:
-        raise HTTPException(409, f"No se pudo reembolsar (¿aún no vence el plazo?): {exc}") from exc
+        raise HTTPException(409, f"Refund failed (has the deadline passed?): {exc}") from exc
     escrow = {**record.escrow, "status": "refunded", "txs": [*record.escrow.get("txs", []), _tx(tx)]}
     record = record.model_copy(update={"escrow": escrow})
     save_task(record)
@@ -330,9 +330,9 @@ def escrow_refund(task_id: str, user: CurrentUser) -> dict:
 
 def _arbiter_release(record: TaskRecord, report: dict) -> TaskRecord:
     if not report["verdict"]["approved"]:
-        raise HTTPException(409, "Solo se libera automáticamente un veredicto aprobado")
+        raise HTTPException(409, "Only an approved verdict can be released by the arbiter")
     if record.escrow.get("status") != "accepted":
-        raise HTTPException(409, f"El escrow está en estado {record.escrow.get('status')}")
+        raise HTTPException(409, f"The escrow is {record.escrow.get('status')}")
     try:
         tx = escrow_service().release(record.task_id, report["verdict"]["workspace_hash"], report["verdict_hash"])
     except chain.EscrowError as exc:
@@ -371,13 +371,13 @@ def post_task_submission(
 
     record = _require(task_id, user, "freelancer")
     if record.escrow.get("status") in ("released", "refunded"):
-        raise HTTPException(409, f"La tarea ya está cerrada (pago {record.escrow['status']})")
+        raise HTTPException(409, f"The task is closed (payment {record.escrow['status']})")
     verify = verify_web_submission if record.draft.profile == "web" else verify_submission
     with _ingested(repo, sha, zip_file, installation_id) as workspace:
         try:
             report = verify(record, workspace)
         except SandboxUnavailable as exc:
-            raise HTTPException(503, f"Sandbox no disponible: {exc}") from exc
+            raise HTTPException(503, f"Sandbox unavailable: {exc}") from exc
         except LegacySuiteError as exc:
             raise HTTPException(409, str(exc)) from exc
         report["received_at"] = now_iso()
@@ -414,14 +414,14 @@ def get_evidence(task_id: str, submission_id: str, name: str, user: CurrentUser)
     """Capturas y video para todas las partes; results.json solo para freelancer y árbitro."""
     record = _require(task_id, user, "client", "freelancer", "arbiter")
     if not re.fullmatch(r"(S\d{1,3}\.png|video-(desktop|mobile)(-\d+)?\.webm|results\.json)", name):
-        raise HTTPException(404, "evidencia no encontrada")
+        raise HTTPException(404, "evidence not found")
     if not evidence_allowed(role_in_task(user, record), name):
-        raise HTTPException(404, "evidencia no encontrada")
+        raise HTTPException(404, "evidence not found")
     if not re.fullmatch(r"[0-9a-f]{32}", submission_id):
-        raise HTTPException(404, "evidencia no encontrada")
+        raise HTTPException(404, "evidence not found")
     path = task_dir(task_id) / "verdicts" / submission_id / name
     if not path.is_file():
-        raise HTTPException(404, "evidencia no encontrada")
+        raise HTTPException(404, "evidence not found")
     return FileResponse(path)
 
 
@@ -433,14 +433,14 @@ def get_source(task_id: str, submission_id: str, user: CurrentUser) -> Streaming
     report = _verdict(task_id, submission_id)
     if role == "client" and not (record.escrow.get("status") == "released"
                                  and record.escrow.get("released_submission_id") == submission_id):
-        raise HTTPException(403, "El código se entrega al cliente cuando se libera el pago")
+        raise HTTPException(403, "The code is delivered to the client once the payment is released")
     path = source_archive_path(task_id, submission_id)
     if not path.exists():
-        raise HTTPException(404, "archivo no disponible")
+        raise HTTPException(404, "file not available")
     data = path.read_bytes()
     expected = report["verdict"]["workspace_hash"]
     if _zip_hash(data) != expected:  # nunca se entrega un archivo que no coincide con lo verificado
-        raise HTTPException(500, "el archivo no coincide con el workspace_hash registrado")
+        raise HTTPException(500, "the archive does not match the recorded workspace_hash")
     return StreamingResponse(io.BytesIO(data), media_type="application/zip", headers={
         "Content-Disposition": f'attachment; filename="{task_id[:8]}-{submission_id[:8]}.zip"',
         "X-Workspace-Hash": expected,
@@ -463,7 +463,7 @@ def _load(task_id: str) -> TaskRecord:
     try:
         return load_task(task_id)
     except KeyError as exc:
-        raise HTTPException(404, "Tarea no encontrada") from exc
+        raise HTTPException(404, "Task not found") from exc
 
 
 def _require(task_id: str, user: User, *roles: str) -> TaskRecord:
@@ -472,8 +472,8 @@ def _require(task_id: str, user: User, *roles: str) -> TaskRecord:
     role = role_in_task(user, record)
     if role not in roles:
         if role == "visitor":
-            raise HTTPException(404, "Tarea no encontrada")
-        raise HTTPException(403, f"Acción no permitida para el rol {role}")
+            raise HTTPException(404, "Task not found")
+        raise HTTPException(403, f"Action not allowed for role {role}")
     return record
 
 
@@ -481,7 +481,7 @@ def _verdict(task_id: str, submission_id: str) -> dict:
     try:
         return load_verdict(task_id, submission_id)
     except KeyError as exc:
-        raise HTTPException(404, "Entrega no encontrada") from exc
+        raise HTTPException(404, "Submission not found") from exc
 
 
 def _task_view(record: TaskRecord, user: User) -> dict:
@@ -530,14 +530,14 @@ def create_submission(
 ) -> SubmissionResponse:
     """Herramienta de diagnóstico del árbitro: ingiere y corre un comando en el sandbox."""
     if not user.is_arbiter:
-        raise HTTPException(403, "Solo el árbitro puede ejecutar comandos arbitrarios")
+        raise HTTPException(403, "Only the arbiter can run arbitrary commands")
     if not command.strip():
-        raise HTTPException(422, "'command' no puede estar vacío")
+        raise HTTPException(422, "'command' cannot be empty")
     with _ingested(repo, sha, zip_file) as workspace:
         try:
             result = run_in_sandbox(workspace.path, command, workspace.path.parent / f"{workspace.path.name}-out")
         except SandboxUnavailable as exc:
-            raise HTTPException(503, f"Sandbox no disponible: {exc}") from exc
+            raise HTTPException(503, f"Sandbox unavailable: {exc}") from exc
         finally:
             rmtree_force(workspace.path.parent / f"{workspace.path.name}-out")
         return SubmissionResponse(
@@ -557,9 +557,9 @@ def _ingested(repo: str | None, sha: str | None, zip_file: UploadFile | None,
     s = get_settings()
     has_repo = bool(repo or sha)
     if has_repo == (zip_file is not None):
-        raise HTTPException(422, "Envía 'repo' y 'sha', o bien un archivo 'zip' (exactamente uno de los dos)")
+        raise HTTPException(422, "Send 'repo' and 'sha', or a 'zip' file (exactly one of them)")
     if has_repo and not (repo and sha):
-        raise HTTPException(422, "'repo' y 'sha' van juntos")
+        raise HTTPException(422, "'repo' and 'sha' go together")
 
     run_dir = s.work_dir / "uploads" / uuid.uuid4().hex
     run_dir.mkdir(parents=True)
@@ -576,7 +576,7 @@ def _ingested(repo: str | None, sha: str | None, zip_file: UploadFile | None,
         workspace = fetch_submission(source)
         yield workspace
     except IngestError as exc:
-        raise HTTPException(422, f"Entrega inválida: {exc}") from exc
+        raise HTTPException(422, f"Invalid delivery: {exc}") from exc
     except NotImplementedError as exc:
         raise HTTPException(501, str(exc)) from exc
     finally:

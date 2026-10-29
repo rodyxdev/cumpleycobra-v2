@@ -88,7 +88,10 @@ export function ReportScreen({ taskId, submissionId }: { taskId: string; submiss
                     <span className="text-slate-500">{c.type}{c.required ? "" : " · optional"}</span>
                   </div>
                   {criterion && <p className="mt-1 text-sm text-slate-800">{criterion.text}</p>}
-                  {(c.summary || c.detail) && <p className="mt-1 text-xs text-slate-600">{c.summary} {c.detail}</p>}
+                  {/* Con lista de tests, el conteo ya va en el desplegable: no se repite. */}
+                  {((!c.tests?.length && c.summary) || c.detail) && (
+                    <p className="mt-1 text-xs text-slate-600">{c.tests?.length ? "" : c.summary} {c.detail}</p>
+                  )}
                   {(c.visual_reasoning || c.judge_reasoning) && (
                     <p className="mt-1 text-xs italic text-slate-600">{c.visual_reasoning ?? c.judge_reasoning}</p>
                   )}
