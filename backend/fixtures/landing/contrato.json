@@ -76,7 +76,7 @@
       "web_check": null
     }
   ],
-  "allowed_dependencies": ["escape-html"],
+  "allowed_dependencies": ["escape-html", "react", "react-dom", "vite", "@vitejs/plugin-react", "oxlint", "@types/react", "@types/react-dom"],
   "examples": [],
   "web": {
     "pages": ["/"],

@@ -18,6 +18,7 @@ class TestOutcome:
     name: str
     outcome: str         # passed | failed | error | skipped
     message: str
+    summary: str = ""    # una línea (atributo `message` del JUnit), sin el código del test
 
     @property
     def criterion_id(self) -> str | None:
@@ -41,14 +42,16 @@ def parse_junit(xml_bytes: bytes) -> list[TestOutcome]:
         name = case.get("name", "")
         file = case.get("file") or (classname.replace(".", "/") + ".py" if classname else name.replace(".", "/") + ".py")
         file = file.rsplit("/", 1)[-1]
-        outcome, message = "passed", ""
+        outcome, message, summary = "passed", "", ""
         for tag in ("failure", "error", "skipped"):
             child = case.find(tag)
             if child is not None:
                 outcome = {"failure": "failed"}.get(tag, tag)
                 text = (child.get("message") or "") + "\n" + (child.text or "")
                 message = text.strip()[:MESSAGE_LIMIT]
+                summary = (child.get("message") or "").strip().split("\n")[0][:300]
                 break
         nodeid = f"{file}::{name}" if classname else file  # sin classname = error de colección
-        outcomes.append(TestOutcome(nodeid=nodeid, file=file, name=name, outcome=outcome, message=message))
+        outcomes.append(TestOutcome(nodeid=nodeid, file=file, name=name, outcome=outcome, message=message,
+                                    summary=summary))
     return outcomes

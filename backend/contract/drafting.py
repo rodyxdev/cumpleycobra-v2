@@ -68,14 +68,23 @@ Para cada problema emite un issue con:
 - kind: vague (palabras sin umbral: "rápido", "bien", "intuitivo"), unverifiable (no se puede
   comprobar ejecutando código ni leyendo el fuente), ambiguous (admite dos lecturas que llevarían
   a tests distintos), wrong_type (el tipo test/static/visual no corresponde), missing_check,
-  duplicate, other.
-- severity: blocker si impide escribir un test o chequeo objetivo; warning si solo conviene mejorarlo.
+  duplicate, implementation_detail, other.
+- implementation_detail: el criterio (o su web_check) impone CÓMO se construye en vez de QUÉ debe
+  observar el cliente: una etiqueta HTML o un rol concreto ("debe ser un <button>", element_visible
+  con rol "button" para algo que es naturalmente un link), clases o ids de CSS, un framework o
+  librería que el cliente no pidió, nombres de funciones internas o la estructura del código.
+  Sugiere el resultado observable equivalente ("al hacer clic en «Pedir ahora» se llega al
+  formulario", "el texto «Enviar» es visible y al pulsarlo se envía el formulario"). Excepciones
+  legítimas: la interfaz pública que el cliente sí pidió (nombre de módulo/función en perfil
+  script, rutas de una API) y restricciones explícitas del pedido ("solo biblioteca estándar").
+- severity: blocker si impide escribir un test o chequeo objetivo, o si un criterio de
+  implementation_detail reprobaría una entrega que cumple lo que el cliente quería; si no, warning.
 - suggestion: reescritura concreta del criterio (con umbrales, formatos y casos borde explícitos).
 Revisa también que los ejemplos sean coherentes con los criterios y con la interfaz.
 No repitas problemas que ya figuran en "issues_deterministas". Si todo está bien, devuelve issues vacío.
 ok = true solo si no hay bloqueantes.
 
-""" + STATIC_CATALOG
+""" + STATIC_CATALOG + "\n" + WEB_CATALOG
 
 
 def draft_task(request: str, mockups: list[dict] | None = None) -> TaskDraft:

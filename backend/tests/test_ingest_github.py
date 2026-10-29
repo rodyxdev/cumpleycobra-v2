@@ -25,8 +25,8 @@ def test_invalid_repo_or_sha_rejected_before_network(repo, sha):
         fetch_submission(GitHubPublicSource(repo=repo, sha=sha))
 
 
-def test_github_app_is_declared_but_not_implemented():
-    with pytest.raises(NotImplementedError):
+def test_github_app_without_configuration_is_rejected():
+    with pytest.raises(IngestError, match="no está configurada"):
         fetch_submission(GitHubAppSource(installation_id=1, repo="o/n", sha=GOOD_SHA))
 
 

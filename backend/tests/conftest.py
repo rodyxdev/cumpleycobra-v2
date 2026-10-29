@@ -34,3 +34,19 @@ def zip_factory(tmp_path):
         return path
 
     return _make
+
+
+ARBITER_TOKEN = "token-de-arbitro-para-tests"
+
+
+@pytest.fixture(autouse=True)
+def _isolated_chain(monkeypatch):
+    """Ningún test toca testnet: se borra la configuración real y se usan billeteras aleatorias."""
+    from stellar_sdk import Keypair
+
+    for var in ("ESCROW_CONTRACT_ID", "ARBITER_SECRET", "USDC_CONTRACT_ID", "GITHUB_APP_ID",
+                "GITHUB_APP_PRIVATE_KEY", "GITHUB_APP_PRIVATE_KEY_PATH"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("ARBITER_TOKEN", ARBITER_TOKEN)
+    monkeypatch.setenv("DEMO_CLIENT_SECRET", Keypair.random().secret)
+    monkeypatch.setenv("DEMO_FREELANCER_SECRET", Keypair.random().secret)

@@ -73,7 +73,8 @@ def _decide_test_criterion(
     c: Criterion, tests: list[TestOutcome], judge: JudgeOutput | None, checker: EvidenceChecker | None
 ) -> CriterionDecision:
     d = CriterionDecision(c.id, c.type, c.required, "manual_review", "tests",
-                          tests=[{"nodeid": t.nodeid, "outcome": t.outcome, "message": t.message[:600]} for t in tests])
+                          tests=[{"nodeid": t.nodeid, "name": t.name, "outcome": t.outcome, "summary": t.summary,
+                                  "message": t.message[:600]} for t in tests])
     if not tests:
         d.reasons.append("no hay resultados de tests para este criterio")
         return d
@@ -254,6 +255,7 @@ def verify_submission(task: TaskRecord, workspace: Workspace) -> dict:
     payload = verdict_payload(task, workspace.content_hash, decision)
     return {
         "submission_id": uuid.uuid4().hex,
+        "profile": draft.profile,
         "verdict_hash": canonical_hash(payload),
         "verdict": payload,
         "reasons": decision.reasons,

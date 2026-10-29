@@ -4,12 +4,22 @@ from fastapi.testclient import TestClient
 from backend import main
 from backend.sandbox import SandboxResult, docker_available
 
-from .conftest import make_zip
+from .conftest import ARBITER_TOKEN, make_zip
+from .helpers import make_user
 
 
 @pytest.fixture
 def client():
-    return TestClient(main.app)
+    # /submissions (fase 1) ejecuta comandos arbitrarios: es una herramienta del árbitro.
+    return TestClient(main.app, headers={"Authorization": f"Bearer {ARBITER_TOKEN}"})
+
+
+def test_raw_command_endpoint_is_arbiter_only(fake_sandbox):
+    anon = TestClient(main.app)
+    assert anon.post("/submissions", data={"command": "id"}).status_code == 401
+    user = TestClient(main.app, headers=make_user("alguien"))
+    resp = user.post("/submissions", files={"zip": ("e.zip", make_zip({"a": b"a"}), "application/zip")})
+    assert resp.status_code == 403 and fake_sandbox == []
 
 
 @pytest.fixture

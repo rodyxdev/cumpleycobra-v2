@@ -2,7 +2,7 @@
 
 1. Higiene: lockfile obligatorio con package.json, dependencias npm dentro de las permitidas,
    paquetes resueltos solo desde registry.npmjs.org con integridad, sin .npmrc.
-2. BUILD (npm ci --ignore-scripts con red; npm run build sin red) y servido en red interna.
+2. BUILD (npm ci con red y con scripts de instalación; npm run build sin red) y servido en red interna.
 3. Chequeos funcionales DETERMINISTAS con Playwright (lado confiable), capturas y video.
 4. Señales: texto oculto vía DOM (contraste, tamaño 0, fuera de pantalla…), texto dirigido al
    evaluador en el texto visible, en el oculto o en el código fuente.
@@ -96,7 +96,7 @@ def check_web_hygiene(workspace: Path, draft: TaskDraft) -> HygieneReport:
     scripts = pkg.get("scripts") or {}
     lifecycle = sorted(k for k in scripts if k in ("preinstall", "install", "postinstall", "prepare"))
     if lifecycle:
-        report.warnings.append(f"scripts de instalación ignorados (--ignore-scripts): {', '.join(lifecycle)}")
+        report.warnings.append(f"scripts de instalación que corren en el BUILD (aislado, sin tests): {', '.join(lifecycle)}")
     return report
 
 
@@ -269,6 +269,7 @@ def verify_web_submission(task: TaskRecord, workspace: Workspace) -> dict:
     results = run.results if run and run.results else {}
     return {
         "submission_id": submission_id,
+        "profile": "web",
         "verdict_hash": canonical_hash(payload),
         "verdict": payload,
         "reasons": decision.reasons,
@@ -277,7 +278,7 @@ def verify_web_submission(task: TaskRecord, workspace: Workspace) -> dict:
         "signals": [{**asdict(s), "ref": s.ref} for s in signals],
         "hidden_text": hidden_all,
         "build": None if site is None else {
-            "kind": site.kind, "subdir": site.subdir, "error": site.error, "install_scripts_ignored": site.scripts_ignored,
+            "kind": site.kind, "subdir": site.subdir, "error": site.error, "install_scripts_ran": site.install_scripts_ran,
             "install_s": site.install.duration_s if site.install else None,
             "build_s": site.build.duration_s if site.build else None,
             "build_stdout_tail": site.build.stdout[-800:] if site.build else None,

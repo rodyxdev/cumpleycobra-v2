@@ -43,12 +43,20 @@ class TaskRecord(BaseModel):
     # "inprocess/v1" = suite de la fase 2 (importaba la entrega); "blackbox/v1" = fase 3.
     suite_format: str = "inprocess/v1"
     migrations: list[dict] = []
+    # Fase 4: roles y pago. Las tareas anteriores no tienen dueño: solo las ve el árbitro.
+    client_id: str | None = None
+    freelancer_id: str | None = None
+    escrow: dict = {}
 
     def public_view(self) -> dict:
         """Lo que puede ver el freelancer: contrato y plan, nunca el código de los tests."""
         return {
             "task_id": self.task_id,
             "status": self.status,
+            "created_at": self.created_at,
+            "client_id": self.client_id,
+            "freelancer_id": self.freelancer_id,
+            "escrow": self.escrow,
             "rules_hash": self.rules_hash,
             "suite_hash": self.suite_hash,
             "contract": self.draft.model_dump(mode="json"),
@@ -103,6 +111,28 @@ def evidence_dir(task_id: str, submission_id: str) -> Path:
     path = task_dir(task_id) / "verdicts" / submission_id
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def source_archive_path(task_id: str, submission_id: str) -> Path:
+    """ZIP determinista de la entrega verificada (solo para el freelancer, o el cliente tras el pago)."""
+    return evidence_dir(task_id, submission_id).parent / f"{submission_id}.source.zip"
+
+
+def list_verdicts(task_id: str) -> list[dict]:
+    folder = task_dir(task_id) / "verdicts"
+    if not folder.exists():
+        return []
+    reports = [json.loads(p.read_text(encoding="utf-8")) for p in folder.glob("*.json")]
+    return sorted(reports, key=lambda r: r.get("received_at", ""))
+
+
+def load_verdict(task_id: str, submission_id: str) -> dict:
+    if not _TASK_ID_RE.match(submission_id):
+        raise KeyError(submission_id)
+    path = task_dir(task_id) / "verdicts" / f"{submission_id}.json"
+    if not path.exists():
+        raise KeyError(submission_id)
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def save_verdict(task_id: str, submission_id: str, report: dict) -> Path:

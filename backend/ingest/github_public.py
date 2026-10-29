@@ -39,9 +39,10 @@ def validate(source: GitHubPublicSource) -> tuple[str, str]:
     return repo, sha
 
 
-def _git(args: list[str], cwd: Path, timeout_s: float) -> str:
+def _git(args: list[str], cwd: Path, timeout_s: float, extra_env: dict[str, str] | None = None) -> str:
     env = {
         **os.environ,
+        **(extra_env or {}),
         "GIT_TERMINAL_PROMPT": "0",
         "GCM_INTERACTIVE": "never",
         "GIT_LFS_SKIP_SMUDGE": "1",
@@ -56,25 +57,32 @@ def _git(args: list[str], cwd: Path, timeout_s: float) -> str:
     except subprocess.TimeoutExpired as exc:
         raise IngestError(f"git {args[0]} superó {timeout_s:.0f}s") from exc
     if proc.returncode != 0:
-        raise IngestError(f"git {args[0]} falló: {proc.stderr.strip()[-500:]}")
+        stderr = proc.stderr.strip()[-500:]
+        for value in (extra_env or {}).values():  # nunca devolver credenciales en un error
+            stderr = stderr.replace(value, "***")
+        raise IngestError(f"git {args[0]} falló: {stderr}")
     return proc.stdout.strip()
+
+
+def checkout_sha(repo: str, sha: str, dest: Path, auth_env: dict[str, str] | None = None) -> None:
+    """init + fetch del SHA exacto con profundidad 1 + checkout. Sin historial ni ramas
+    (GitHub permite pedir un commit alcanzable por su SHA). `auth_env` solo se usa en el fetch."""
+    timeout = get_settings().git_timeout_s
+    _git(["init", "--quiet", "--template=", "."], dest, timeout)
+    _git(["remote", "add", "origin", f"https://github.com/{repo}.git"], dest, timeout)
+    _git(["fetch", "--quiet", "--depth", "1", "--no-tags", "origin", sha], dest, timeout, auth_env)
+    obj_type = _git(["cat-file", "-t", sha], dest, timeout)
+    if obj_type != "commit":
+        raise IngestError(f"el SHA apunta a un objeto '{obj_type}', no a un commit")
+    _git(["checkout", "--quiet", "--detach", "FETCH_HEAD"], dest, timeout)
+    head = _git(["rev-parse", "HEAD"], dest, timeout)
+    if head != sha:
+        raise IngestError(f"HEAD {head} no coincide con el SHA pedido {sha}")
+    # El workspace es sólo el árbol de archivos; .git no se ejecuta ni se hashea.
+    rmtree_force(dest / ".git")
 
 
 class GitHubPublicFetcher:
     def fetch(self, source: GitHubPublicSource, dest: Path) -> None:
         repo, sha = validate(source)
-        timeout = get_settings().git_timeout_s
-        # init + fetch del SHA exacto con profundidad 1: no baja el historial y no
-        # depende de ramas (GitHub permite pedir un commit alcanzable por su SHA).
-        _git(["init", "--quiet", "--template=", "."], dest, timeout)
-        _git(["remote", "add", "origin", f"https://github.com/{repo}.git"], dest, timeout)
-        _git(["fetch", "--quiet", "--depth", "1", "--no-tags", "origin", sha], dest, timeout)
-        obj_type = _git(["cat-file", "-t", sha], dest, timeout)
-        if obj_type != "commit":
-            raise IngestError(f"el SHA apunta a un objeto '{obj_type}', no a un commit")
-        _git(["checkout", "--quiet", "--detach", "FETCH_HEAD"], dest, timeout)
-        head = _git(["rev-parse", "HEAD"], dest, timeout)
-        if head != sha:
-            raise IngestError(f"HEAD {head} no coincide con el SHA pedido {sha}")
-        # El workspace es sólo el árbol de archivos; .git no se ejecuta ni se hashea.
-        rmtree_force(dest / ".git")
+        checkout_sha(repo, sha, dest)

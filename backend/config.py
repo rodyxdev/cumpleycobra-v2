@@ -53,6 +53,7 @@ class Settings:
     suite_max_regenerations: int
     hidden_test_timeout_s: int
     call_timeout_s: float
+    npm_install_timeout_s: float
     blackbox_suite_timeout_s: float
 
 
@@ -84,5 +85,6 @@ def get_settings() -> Settings:
         suite_max_regenerations=_int("SUITE_MAX_REGENERATIONS", 2),
         hidden_test_timeout_s=_int("HIDDEN_TEST_TIMEOUT_S", 30),
         call_timeout_s=_float("CALL_TIMEOUT_S", 5.0),
+        npm_install_timeout_s=_float("NPM_INSTALL_TIMEOUT_S", 600.0),
         blackbox_suite_timeout_s=_float("BLACKBOX_SUITE_TIMEOUT_S", 300.0),
     )

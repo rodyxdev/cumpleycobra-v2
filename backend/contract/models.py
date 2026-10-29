@@ -105,7 +105,9 @@ class TaskDraft(_Strict):
     web: WebSpec | None = Field(default=None, description="Solo perfil web: páginas y mockups; null en otro caso")
 
 
-IssueKind = Literal["vague", "unverifiable", "ambiguous", "wrong_type", "missing_check", "duplicate", "other"]
+IssueKind = Literal[
+    "vague", "unverifiable", "ambiguous", "wrong_type", "missing_check", "duplicate", "implementation_detail", "other",
+]
 
 
 class ReviewIssue(_Strict):

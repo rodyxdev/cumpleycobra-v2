@@ -58,6 +58,26 @@ def hash_workspace(root: Path) -> str:
     return HASH_PREFIX + h.hexdigest()
 
 
+def deterministic_zip(root: Path) -> bytes:
+    """ZIP del workspace con orden, fechas y permisos fijos: mismo contenido → mismos bytes.
+
+    Al extraerlo, `hash_workspace` da exactamente el mismo hash que el workspace original.
+    """
+    import io
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for rel, kind, _digest in iter_entries(root):
+            if kind != "f":
+                continue
+            info = zipfile.ZipInfo(rel, date_time=(1980, 1, 1, 0, 0, 0))
+            info.external_attr = 0o644 << 16
+            info.compress_type = zipfile.ZIP_DEFLATED
+            zf.writestr(info, (root / rel).read_bytes())
+    return buf.getvalue()
+
+
 def tree_size(root: Path) -> int:
     total = 0
     for dirpath, dirnames, filenames in os.walk(root, followlinks=False):

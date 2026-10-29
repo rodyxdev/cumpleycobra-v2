@@ -2,7 +2,9 @@
 
 - Estática (sin package.json): se sirve el workspace tal cual (solo lectura).
 - Node (con package.json + package-lock.json): se copia a un volumen y
-  1. `npm ci --ignore-scripts` CON red (solo descarga; no corre preinstall/postinstall),
+  1. `npm ci` CON red. Los scripts de instalación (postinstall, ...) SÍ corren: muchos paquetes
+     los necesitan (binarios nativos) y este contenedor solo tiene código del freelancer y sus
+     dependencias; nunca monta tests ni secretos. Mantiene timeout, CPU, memoria y usuario nobody.
   2. `npm run build` SIN red, si el proyecto define el script `build`,
   3. se sirve la primera carpeta con index.html entre dist/, build/, out/, public/ o la raíz.
 - El servidor (http.server de Python, código nuestro) corre en una red interna, sin internet,
@@ -23,6 +25,20 @@ from backend.sandbox.runner import Service, _docker, start_service
 NODE_IMAGE = "node:22-slim"
 SITE_MOUNT = "/site"
 _NPM_ENV = {"npm_config_cache": "/tmp/.npm", "npm_config_update_notifier": "false", "npm_config_fund": "false"}
+# Caché de npm compartida entre BUILDs (solo en `npm ci`). Es direccionada por contenido y npm
+# verifica el `integrity` del lockfile al leerla, así que un BUILD no puede envenenar paquetes de
+# otro; el riesgo residual es que ocupe disco. Sin ella, un proyecto Vite tarda ~7 min en Docker Desktop.
+NPM_CACHE_VOLUME = "cc-npm-cache"
+NPM_CACHE_MOUNT = "/npm-cache"
+
+
+def _npm_cache_volume() -> str:
+    if _docker(["volume", "inspect", NPM_CACHE_VOLUME]).returncode != 0:
+        _docker(["volume", "create", NPM_CACHE_VOLUME])
+        _docker(["run", "--rm", "--network", "none", "--user", "0",
+                 "--mount", f"type=volume,source={NPM_CACHE_VOLUME},target={NPM_CACHE_MOUNT}",
+                 NODE_IMAGE, "chown", "65534:65534", NPM_CACHE_MOUNT], timeout_s=60)
+    return NPM_CACHE_VOLUME
 
 
 @dataclass
@@ -34,7 +50,7 @@ class SiteBuild:
     build: SandboxResult | None = None
     volume: str | None = None
     error: str | None = None
-    scripts_ignored: bool | None = None
+    install_scripts_ran: bool | None = None
 
     @property
     def ok(self) -> bool:
@@ -46,10 +62,12 @@ class SiteBuild:
 
 
 def _limits(network_build: bool) -> SandboxLimits:
+    """`npm ci` de un proyecto real (Vite trae binarios nativos de decenas de MB) tarda minutos:
+    tiene su propio timeout. El build, sin red, usa el doble del timeout normal del sandbox."""
     s = get_settings()
     base = SandboxLimits.from_settings()
-    return replace(base, timeout_s=s.build_timeout_s if network_build else s.sandbox_timeout_s * 2,
-                   memory=s.build_memory, pids=512)
+    return replace(base, timeout_s=s.npm_install_timeout_s if network_build else s.sandbox_timeout_s * 2,
+                   memory=s.build_memory, pids=512, cpus=max(base.cpus, 2.0))
 
 
 def prepare_site(workspace: Path) -> SiteBuild:
@@ -73,16 +91,20 @@ def prepare_site(workspace: Path) -> SiteBuild:
         return site
 
     with_tmp = dict(image=NODE_IMAGE, mounts=rw, env=_NPM_ENV, tmp_size="512m")
+    cache = _npm_cache_volume()
     site.install = run_in_sandbox(
         None,
-        "cd /workspace && npm ci --ignore-scripts --no-audit --loglevel=error"
-        " && (test -e /tmp/postinstall-ejecutado && echo SCRIPTS-EJECUTADOS || echo scripts-de-instalacion-ignorados)",
-        None, network=True, limits=_limits(True), **with_tmp,
+        "cd /workspace && npm ci --no-audit --loglevel=error"
+        " && (test -e /tmp/postinstall-ejecutado && echo SCRIPTS-EJECUTADOS || echo sin-marca-de-postinstall)",
+        None, network=True, limits=_limits(True), image=NODE_IMAGE, tmp_size="512m",
+        mounts=(*rw, Mount(cache, NPM_CACHE_MOUNT, readonly=False, kind="volume")),
+        env={**_NPM_ENV, "npm_config_cache": NPM_CACHE_MOUNT},
     )
     if site.install.exit_code != 0:
         site.error = "npm ci falló (¿lockfile desactualizado o paquete inexistente?)"
         return site
-    site.scripts_ignored = "scripts-de-instalacion-ignorados" in site.install.stdout
+    # Solo informativo: la fixture correcta_npm deja esta marca desde su postinstall.
+    site.install_scripts_ran = "SCRIPTS-EJECUTADOS" in site.install.stdout
 
     scripts = json.loads((workspace / "package.json").read_text(encoding="utf-8")).get("scripts", {})
     if "build" in scripts:

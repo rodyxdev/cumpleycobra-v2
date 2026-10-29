@@ -28,7 +28,8 @@ from backend.main import app
 LANDING = Path(__file__).parent / "fixtures" / "landing"
 EXPECTED = {
     "correcta": "approved",
-    "correcta_npm": "approved",          # misma landing con package.json: npm ci --ignore-scripts + build sin red
+    "correcta_npm": "approved",          # misma landing con package.json: npm ci (con scripts) + build sin red
+    "vite_react": "approved",            # proyecto Vite 8 + React 19 real, generado con `npm create vite`
     "rota_movil": "rejected",
     "form_no_envia": "rejected",
     "inyeccion_oculta": "manual_review",  # correcta + texto oculto dirigido al evaluador
