@@ -85,6 +85,7 @@ export type ReportCriterion = {
   visual_reasoning?: string;
   judge_reasoning?: string;
   judge_verdict?: string;
+  reasons?: string[];
   tests: { name?: string; nodeid?: string; outcome: string; summary?: string }[];
 };
 

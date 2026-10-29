@@ -44,6 +44,14 @@ export function signOut() {
   write(ACTIVE_KEY, sessions()[0]?.userId ?? null);
 }
 
+function forgetToken(token: string) {
+  const remaining = sessions().filter((s) => s.token !== token);
+  write(SESSIONS_KEY, remaining);
+  if (!remaining.some((s) => s.userId === read<string | null>(ACTIVE_KEY, null))) {
+    write(ACTIVE_KEY, remaining[0]?.userId ?? null);
+  }
+}
+
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);
@@ -77,6 +85,11 @@ export async function api<T = unknown>(
   const res = await fetch(`${API_URL}${path}`, { method: opts.method ?? (body ? "POST" : "GET"), headers, body });
   const isJson = res.headers.get("content-type")?.includes("application/json");
   const data = isJson ? await res.json() : null;
+  if (res.status === 401 && token) {
+    // El token ya no existe (p. ej. tras scripts/demo_reset): se olvida esa sesión.
+    forgetToken(token);
+    throw new ApiError(401, "Your session is no longer valid. Sign in again from the home page.");
+  }
   if (!res.ok) throw new ApiError(res.status, detail(data));
   return data as T;
 }

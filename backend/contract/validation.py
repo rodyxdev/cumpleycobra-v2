@@ -138,6 +138,24 @@ def deterministic_issues(draft: TaskDraft) -> list[ReviewIssue]:
     return issues
 
 
+_EN_WORDS = {"the", "and", "with", "of", "on", "is", "a", "an", "to", "when", "must", "returns", "page", "shows"}
+_ES_WORDS = {"el", "la", "los", "las", "de", "con", "en", "y", "que", "debe", "una", "un", "se", "del", "muestra"}
+
+
+def contract_language(draft: TaskDraft) -> str:
+    """'en' o 'es' según las palabras funcionales de la prosa del contrato (no de los textos citados).
+
+    Los jueces lo reciben explícito: con prompts en español y páginas en español, el modelo
+    tendía a responder en español aunque el contrato estuviera en inglés.
+    """
+    text = " ".join([draft.title, draft.description, *(c.text for c in draft.criteria)])
+    text = re.sub(r"(['\"«“]).*?(['\"»”])", " ", text)  # fuera lo citado
+    words = re.findall(r"[a-záéíóúñ]+", text.lower())
+    en = sum(w in _EN_WORDS for w in words)
+    es = sum(w in _ES_WORDS for w in words)
+    return "en" if en > es else "es"
+
+
 def blocking_errors(draft: TaskDraft) -> list[str]:
     return [f"{i.criterion_id}: {i.explanation}" for i in deterministic_issues(draft) if i.severity == "blocker"]
 

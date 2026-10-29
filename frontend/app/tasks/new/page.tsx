@@ -168,6 +168,13 @@ export default function NewTaskPage() {
                             <button className="text-emerald-800 underline decoration-dotted" onClick={() => updateCriterion(i, { text: issue.suggestion })}>
                               apply
                             </button>
+                            {check && (
+                              <span className="mt-1 block text-xs text-slate-500">
+                                “apply” only rewrites the text. The automated check stays{" "}
+                                <code>{check.kind}({check.args.join(", ")})</code>; if the suggestion needs a different
+                                check, remove this criterion or regenerate the draft with a more precise request.
+                              </span>
+                            )}
                           </p>
                         )}
                       </div>

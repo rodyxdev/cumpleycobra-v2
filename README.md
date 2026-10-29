@@ -33,6 +33,10 @@ soroban/             contrato de escrow en Rust (soroban-sdk 27) y sus tests
 docs/fases/          bitácora por fase
 ```
 
+## Preparar la demo
+
+`.\scripts\demo_reset.ps1` limpia los datos locales, verifica Docker, Meta y testnet, fondea las billeteras demo, construye las imágenes y deja en `demo/` los ZIPs, los mockups y el guion (`demo/GUION.txt`). Se puede correr varias veces seguidas.
+
 ## Puesta en marcha (Windows, PowerShell)
 
 Requisitos: Python 3.12+, git, Docker Desktop corriendo (las imágenes de tests, SUT y

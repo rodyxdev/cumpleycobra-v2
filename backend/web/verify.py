@@ -36,6 +36,8 @@ from backend.web.serve import prepare_site
 from backend.web.visual_judge import JudgeImage, VisualOutput, has_screenshot_ref, judge_visual, valid_refs
 
 SUITE_FORMAT_WEB = "web/v1"
+# Etiqueta de las capturas de página completa (la española es la de reportes anteriores).
+FULL_PAGE_LABELS = ("full page", "página completa")
 _TEXT_SUFFIXES = {".html", ".htm", ".js", ".mjs", ".css", ".json", ".md", ".txt", ".svg", ".ts", ".tsx", ".jsx", ".vue"}
 _BLOCKED = {".npmrc", ".yarnrc", ".yarnrc.yml", ".pnpmfile.cjs"}
 _REGISTRY = "https://registry.npmjs.org/"
@@ -142,7 +144,7 @@ def judge_images(draft: TaskDraft, results: dict, evidence: Path) -> list[JudgeI
         if path:
             images.append(JudgeImage(m.id, "mockup", m.viewport, m.page, path, m.description))
     for shot in results.get("screenshots", []):
-        if shot["label"] == "página completa":
+        if shot["label"] in FULL_PAGE_LABELS:
             images.append(JudgeImage(shot["id"], "captura", shot["viewport"], shot["page"], evidence / shot["file"], shot["label"]))
     return images
 

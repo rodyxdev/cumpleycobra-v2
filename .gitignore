@@ -5,3 +5,6 @@ env.txt
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# Generado por scripts/demo_reset.py
+/demo/

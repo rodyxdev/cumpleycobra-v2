@@ -8,6 +8,9 @@ import { Badge, Card, contractUrl, ErrorNote, Hash, Spinner, TxList } from "@/co
 import { api, blobUrl } from "@/lib/api";
 import { Report, Task } from "@/lib/types";
 
+// Etiqueta de las capturas de página completa (la española es la de reportes anteriores).
+const FULL_PAGE = ["full page", "página completa"];
+
 const STAGES: Record<string, string> = {
   hygiene: "hygiene checks",
   build: "dependency install / build",
@@ -88,14 +91,19 @@ export function ReportScreen({ taskId, submissionId }: { taskId: string; submiss
                     <span className="text-slate-500">{c.type}{c.required ? "" : " · optional"}</span>
                   </div>
                   {criterion && <p className="mt-1 text-sm text-slate-800">{criterion.text}</p>}
-                  {/* Con lista de tests, el conteo ya va en el desplegable: no se repite. */}
-                  {((!c.tests?.length && c.summary) || c.detail) && (
-                    <p className="mt-1 text-xs text-slate-600">{c.tests?.length ? "" : c.summary} {c.detail}</p>
+                  {/* El resumen solo cuando agrega algo: el estado ya está en la insignia, el conteo de
+                      tests va en el desplegable y el detalle web en "Browser check". */}
+                  {c.summary && (c.type === "static" || c.status === "manual_review" || c.status === "not_evaluated") && (
+                    <p className="mt-1 text-xs text-slate-600">{c.summary}</p>
                   )}
                   {(c.visual_reasoning || c.judge_reasoning) && (
                     <p className="mt-1 text-xs italic text-slate-600">{c.visual_reasoning ?? c.judge_reasoning}</p>
                   )}
-                  {c.tests?.length > 0 && (
+                  {report.profile === "web" && c.type === "test" && (c.detail ?? c.reasons?.[0]) && (
+                    // Perfil web: no hay tests ocultos; el resultado es un chequeo en un navegador real.
+                    <p className="mt-1 text-xs text-slate-600">Browser check: {c.detail ?? c.reasons?.[0]}</p>
+                  )}
+                  {report.profile !== "web" && c.tests?.length > 0 && (
                     <details className="mt-2 text-xs">
                       <summary className="cursor-pointer text-slate-600">
                         {c.tests.filter((t) => t.outcome === "passed").length}/{c.tests.length} hidden tests passed
@@ -143,15 +151,15 @@ export function ReportScreen({ taskId, submissionId }: { taskId: string; submiss
       {report.screenshots?.length > 0 && (
         <Card title="Evidence: screenshots">
           <div className="grid gap-4 md:grid-cols-[3fr_1fr]">
-            {report.screenshots.filter((s) => s.label === "página completa").map((s) => (
+            {report.screenshots.filter((s) => FULL_PAGE.includes(s.label)).map((s) => (
               <Evidence key={s.id} path={`/tasks/${taskId}/submissions/${report.submission_id}/evidence/${s.file}`}
                 caption={`${s.id} · ${s.viewport} (${s.viewport === "desktop" ? 1440 : 390} px) · ${s.page}`} />
             ))}
           </div>
           <div className="mt-4 grid gap-4 sm:grid-cols-2 md:grid-cols-4">
-            {report.screenshots.filter((s) => s.label !== "página completa").map((s) => (
+            {report.screenshots.filter((s) => !FULL_PAGE.includes(s.label)).map((s) => (
               <Evidence key={s.id} path={`/tasks/${taskId}/submissions/${report.submission_id}/evidence/${s.file}`}
-                caption={`${s.id} · after ${s.label.replace("tras ", "")}`} />
+                caption={`${s.id} · ${s.label}`} />
             ))}
           </div>
         </Card>

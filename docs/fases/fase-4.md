@@ -162,3 +162,83 @@ Archivos de test nuevos en la fase:
 - El flujo web completo desde la UI con depósito: el perfil web se verificó con
   `backend.demo_web`, pero la UI de punta a punta se recorrió con el perfil script.
 - El precio oficial de Muse Spark.
+
+## 4.5 — Demo listo para grabar
+
+Fecha: 2026-10-29. Sin funcionalidades nuevas: el perfil web se probó de punta a punta desde la UI con
+depósito en testnet, se corrigió lo que falló y se agregó el script de preparación.
+
+### Perfil web desde la UI, con depósito en testnet
+
+Una sola tarea, que cuenta la historia natural de la demo: el freelancer entrega una versión rota, luego
+una tramposa y al final la correcta, que es la que cobra. Se usó un solo depósito; tres tareas habrían
+necesitado tres depósitos sin aportar nada.
+
+Tarea `bc2dbbe4c3fe47179822233ac68795e7` (ejemplo "Landing page" de la UI + mockups M1/M2 subidos desde
+la UI). Contrato con 12 chequeos de navegador y 2 visuales:
+`rules_hash = sha256:1459d19e6899fb1b14dd463429921351f673dabec8f976c2ccffcb5f57cac7f0`,
+`suite_hash = sha256:761c5d474582950e627ebc339a6e6334693ef8e9fd3aa777d7b095d90266ede6`.
+
+| Paso | Resultado |
+|---|---|
+| Depósito de 25 USDC | [`f6e548566ff23d797d54525ec92ccb632cfe3c375a6287041ecc10245fd8acb7`](https://stellar.expert/explorer/testnet/tx/f6e548566ff23d797d54525ec92ccb632cfe3c375a6287041ecc10245fd8acb7) |
+| Aceptación | [`2c13736ed5f954f5bce7bfd15e4b7e3dcd2093d80b95e0b9cfae9fe03c0ae112`](https://stellar.expert/explorer/testnet/tx/2c13736ed5f954f5bce7bfd15e4b7e3dcd2093d80b95e0b9cfae9fe03c0ae112) |
+| Entrega 1: landing rota en móvil | **rejected** en 23 s. El cliente ve por qué: C7–C10 `mobile: within width=False`, C12 `scrollWidth=1101` en un viewport de 390 px, C14 (juez visual) "no apila las tarjetas, desborda", y la captura móvil mide 1101 px de ancho |
+| Entrega 2: landing con texto oculto | **manual review** en 21 s: los 14 criterios pasan, pero hay texto oculto dirigido al evaluador (contraste 1:1, `font-size:0`, fuera de pantalla). El cliente ve la señal genérica, sin el texto |
+| Entrega 3: landing correcta | **approved** en 20 s y pago automático: [release `e06b11f91a6acc2fc8642c0fca358071be26a17f150482d4d9aaa8f226caa97a`](https://stellar.expert/explorer/testnet/tx/e06b11f91a6acc2fc8642c0fca358071be26a17f150482d4d9aaa8f226caa97a) con `workspace_hash = sha256:71b7d73a6cd9b36e24fdda6a0bfa8273b1f37de5b163fd48321cfa244f733a98` y `verdict_hash = sha256:63d8c688642c069ae98614495e4464506036b92f0088fd9f40d191969d3ff686` |
+| Comprobación on-chain | `get_escrow`: `released`, 25 USDC. **rules, workspace y verdict hash iguales** a los del backend; el `verdict_hash` incluye los sha256 de S1–S3, los 2 videos y `results.json` |
+| Vista del cliente | Las 3 capturas se cargan (1440 px, 390 px y después de enviar el formulario) y los 2 videos se reproducen (~9.5 s). Descarga el ZIP de la entrega **pagada** (200, `X-Workspace-Hash` correcto); el de la entrega no pagada da **403** |
+
+### Fallos de la UI encontrados y corregidos
+- **Contrato en español para un pedido en inglés**: el modelo se guiaba por los textos citados
+  ("Verduras orgánicas a tu puerta"). Ahora el borrador usa el idioma de la *prosa* del cliente y
+  copia tal cual los textos citados. Verificado en vivo: el contrato salió en inglés.
+- **Jueces y revisión en español** con contratos en inglés: el backend detecta el idioma del contrato
+  (`contract_language`) y lo pasa explícito a los dos jueces. Verificado: el razonamiento visual y la
+  revisión salieron en inglés.
+- **"0/1 hidden tests passed" en criterios web que pasaban**: la UI contaba tests ocultos, que el perfil
+  web no tiene. Ahora muestra "Browser check: …" con el resultado del navegador.
+- **Detalles del runner de Playwright en español** ("dentro_del_ancho", "tras enviar el formulario"):
+  pasados a inglés. La primera entrega de la tarea de arriba se verificó antes del cambio y su reporte
+  todavía los muestra en español.
+- **Señales del freelancer en español y repetidas** (9 líneas para 4 hallazgos): traducidas y agrupadas,
+  con ubicaciones legibles ("/ (desktop)").
+- **Motivos del freelancer en español**: ahora usa los mismos motivos en inglés que el cliente; los
+  originales quedan en `reasons_detail`.
+- **Detalle web duplicado** en el reporte: el resumen solo aparece cuando agrega información.
+- **"apply" cambiaba el texto pero no el chequeo**: la revisión sugirió `link_navigates` donde había
+  `element_visible`, y "apply" solo reescribía el texto. Sin agregar un editor de chequeos, la UI ahora
+  advierte que "apply" cambia solo el texto, muestra qué chequeo se mantiene y sugiere quitar el criterio
+  o regenerar el borrador. *Comprobado solo con TypeScript y ESLint: el servidor de desarrollo no
+  recompiló la página durante la prueba en vivo.*
+- **Sesiones vencidas tras un reset**: tokens que ya no existían dejaban un usuario fantasma y errores
+  "Invalid token". Ahora un 401 elimina esa sesión y la UI invita a iniciar sesión (verificado en vivo
+  después de `demo_reset`).
+
+### `scripts/demo_reset`
+
+```powershell
+.\scripts\demo_reset.ps1        # o: .venv\Scripts\python scripts\demo_reset.py [--keep-data] [--skip-images]
+```
+
+1. Borra tareas, usuarios, mockups y temporales de `.data/`, y los contenedores, volúmenes y redes `cc-*`
+   que hayan quedado (no toca la caché npm ni las imágenes).
+2. Verifica Docker, la API de Meta (que `MUSE_MODEL` exista) y testnet: RPC sano y `get_config` del
+   escrow con el mismo árbitro y token que el `.env`.
+3. Fondea las billeteras demo: XLM por friendbot si bajan de 100, trustline de USDC y recarga del cliente
+   hasta 1000 USDC de prueba. Para eso necesita `USDC_ISSUER_SECRET` en `.env`.
+4. Construye de antemano las imágenes de runner, SUT y Playwright.
+5. Deja en `demo/` (fuera de git) 5 ZIPs de entregas, los 2 mockups y `GUION.txt` con los pasos.
+
+Corrido **dos veces seguidas**: 8/8 pasos OK (16 s y 9 s); la segunda vez no hubo nada que borrar ni
+recargar. Termina con código 1 si falla algún chequeo.
+
+### Antes de grabar
+1. `.\scripts\demo_reset.ps1`
+2. Levantar la API y el frontend (README) y abrir http://localhost:3000. Las sesiones viejas del
+   navegador se limpian solas.
+3. Seguir `demo/GUION.txt`. En el navegador, los ZIPs y mockups se eligen desde `demo/`.
+
+### Tests y lint
+- `pytest`: **304 passed in 101.25s** (4 tests nuevos en `test_demo_ready.py`: idioma del contrato, señales en inglés y agrupadas, fixtures de `demo_reset` con el mismo hash que las originales, borrado idempotente).
+- `cargo test`: **13 passed**. `ruff` (backend y scripts), `tsc --noEmit` y `eslint` (frontend): sin errores.

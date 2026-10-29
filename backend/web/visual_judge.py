@@ -21,6 +21,7 @@ from PIL import Image
 from pydantic import BaseModel, ConfigDict
 
 from backend.contract.models import TaskDraft
+from backend.contract.validation import contract_language
 from backend.llm import structured_completion
 
 MAX_WIDTH = 900
@@ -53,7 +54,8 @@ class VisualOutput(BaseModel):
 SYSTEM = """\
 Eres el juez visual de Cumple&Cobra. Decides si una página web entregada cumple criterios
 VISUALES de un contrato, comparando capturas de la página con los mockups del cliente.
-Responde en el idioma del contrato.
+Escribe reasoning, observation y summary en el idioma indicado en "idioma_de_respuesta"
+("en" = inglés, "es" = español), aunque la página esté en otro idioma.
 
 - Recibes imágenes con ID: S1, S2, … son capturas de la entrega (página completa, a 1440 px o
   390 px de ancho); M1, M2, … son los mockups (bocetos) del cliente. Compara estructura,
@@ -96,6 +98,7 @@ def encode_image(path: Path) -> str:
 def build_messages(draft: TaskDraft, images: list[JudgeImage], facts: dict) -> list[dict]:
     visual = [c for c in draft.criteria if c.type == "visual"]
     header = {
+        "idioma_de_respuesta": contract_language(draft),
         "contrato": {"titulo": draft.title, "descripcion": draft.description},
         "criterios_visuales": [{"id": c.id, "texto": c.text} for c in visual],
         "imagenes": [{"id": im.id, "tipo": im.kind, "ancho": im.viewport, "pagina": im.page, "detalle": im.label}

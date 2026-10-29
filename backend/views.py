@@ -113,8 +113,52 @@ def _generic_signal(kind: str) -> str:
     }.get(kind, "Signal detected.")
 
 
+_SIGNAL_EN = [
+    ("texto OCULTO dirigido al evaluador", "hidden text aimed at the automated evaluator"),
+    ("texto visible dirigido al evaluador", "visible text aimed at the automated evaluator"),
+    ("texto dirigido al evaluador en el código fuente", "text aimed at the automated evaluator in the source code"),
+    ("texto dirigido al evaluador en la salida de la entrega", "text aimed at the automated evaluator in the delivery's output"),
+    ("texto dirigido al evaluador automático", "text aimed at the automated evaluator"),
+    ("contiene literalmente la entrada de un ejemplo público", "contains a public example's input verbatim"),
+    ("contiene literalmente la salida esperada de un ejemplo público", "contains a public example's expected output verbatim"),
+    ("define un hook de pytest", "defines a pytest hook"),
+    ("referencia a la infraestructura de test", "references the test infrastructure"),
+    ("desde el código entregado", "imported from the delivered code"),
+]
+_REASON_EN = {"contraste": "contrast", "tamaño 0": "size 0", "fuera de pantalla": "off-screen", "importa ": ""}
+
+
+def _signal_en(detail: str, kind: str) -> str:
+    """Las señales se generan en español; la UI es en inglés. Desconocida → descripción genérica."""
+    for es, en in _SIGNAL_EN:
+        if es in detail:
+            rest = detail.replace(es, "").strip()
+            for a, b in _REASON_EN.items():
+                rest = rest.replace(a, b)
+            return f"{en} {rest}".strip() if es != "desde el código entregado" else f"{rest} {en}".strip()
+    return _generic_signal(kind)
+
+
+def _grouped_signals(signals: list[dict]) -> list[dict]:
+    """Una línea por (tipo, detalle), con todas sus ubicaciones: la lista cruda repetía 9 veces lo mismo."""
+    groups: dict[tuple[str, str], list[str]] = {}
+    for s in signals:
+        ref = (s.get("ref") or "").removesuffix(":0")
+        if "@" in ref:  # señales del DOM: "/@desktop" → "/ (desktop)"
+            page, viewport = ref.split("@", 1)
+            ref = f"{page} ({viewport})"
+        key = (s["kind"], _signal_en(s.get("detail", ""), s["kind"]))
+        if ref not in groups.setdefault(key, []):
+            groups[key].append(ref)
+    return [{"kind": k, "detail": d, "ref": ", ".join(r for r in refs if r)} for (k, d), refs in groups.items()]
+
+
 def freelancer_view(report: dict) -> dict:
     view = copy.deepcopy(report)
+    view["signals"] = _grouped_signals(report.get("signals", []))
+    # Motivos en inglés, regenerados igual que para el cliente; los internos quedan aparte.
+    view["reasons_detail"] = view.get("reasons", [])
+    view["reasons"] = _client_reasons(report)
     for c in view.get("criteria", []):
         if view.get("profile") != "web":
             c["tests"] = [{"nodeid": t.get("nodeid"), "name": t.get("name"), "outcome": t.get("outcome"),

@@ -172,9 +172,9 @@ class Runner:
             try:
                 page = self.open(ctx, page_path, viewport)
             except Exception as exc:  # noqa: BLE001
-                info[viewport] = {"error": f"no cargó: {exc}"[:400]}
+                info[viewport] = {"error": f"did not load: {exc}"[:400]}
                 continue
-            sid = self.capture(page, page_path, viewport, "página completa")
+            sid = self.capture(page, page_path, viewport, "full page")
             info[viewport] = {
                 "screenshot": sid,
                 "title": page.title(),
@@ -191,7 +191,7 @@ class Runner:
         try:
             return fn(ctx_by_vp, page_path, args)
         except Exception as exc:  # noqa: BLE001 - un error del chequeo es un fallo, con el motivo
-            return {"passed": False, "detail": f"error al ejecutar el chequeo: {type(exc).__name__}: {str(exc)[:300]}"}
+            return {"passed": False, "detail": f"check crashed: {type(exc).__name__}: {str(exc)[:300]}"}
 
     def _text_in(self, page_path, viewport):
         return norm(self.results["pages"].get(page_path, {}).get(viewport, {}).get("visible_text", ""))
@@ -200,7 +200,7 @@ class Runner:
         target = norm(args[0])
         per = {vp: target in self._text_in(page_path, vp) for vp in VIEWPORTS}
         return {"passed": all(per.values()), "viewports": per,
-                "detail": f"texto {args[0]!r} visible: " + ", ".join(f"{k}={v}" for k, v in per.items())}
+                "detail": f"text {args[0]!r} visible: " + ", ".join(f"{k}={v}" for k, v in per.items())}
 
     def _check_title_contains(self, ctx_by_vp, page_path, args):
         title = self.results["pages"].get(page_path, {}).get("desktop", {}).get("title", "")
@@ -220,7 +220,7 @@ class Runner:
                 box = loc.bounding_box()
                 inside = bool(box) and box["x"] >= -1 and box["x"] + box["width"] <= VIEWPORTS[vp][0] + 1
             per[vp] = visible and inside
-            details.append(f"{vp}: visible={visible} dentro_del_ancho={inside}")
+            details.append(f"{vp}: visible={visible} within width={inside}")
         return {"passed": all(per.values()), "viewports": per, "detail": "; ".join(details)}
 
     def _check_link_navigates(self, ctx_by_vp, page_path, args):
@@ -228,7 +228,7 @@ class Runner:
         page = self.open(ctx_by_vp["desktop"], page_path, "desktop")
         link = page.get_by_role("link", name=name).first
         if link.count() == 0:
-            return {"passed": False, "detail": f"no hay un link con nombre {name!r}"}
+            return {"passed": False, "detail": f"no link named {name!r}"}
         href = link.get_attribute("href")
         link.click(timeout=5000)
         page.wait_for_timeout(800)
@@ -238,12 +238,12 @@ class Runner:
                 "(id) => { const el = document.getElementById(id); if (!el) return false;"
                 " const r = el.getBoundingClientRect(); return r.top < window.innerHeight && r.bottom > 0; }", dest[1:])
             ok = hash_ok or in_view
-            detail = f"href={href!r}; url={page.url}; ancla en pantalla={in_view}"
+            detail = f"href={href!r}; url={page.url}; anchor in view={in_view}"
         else:
             parsed = urllib.parse.urlparse(page.url)
             ok = page.url.rstrip("/") == dest.rstrip("/") or parsed.path.rstrip("/") == dest.rstrip("/")
-            detail = f"href={href!r}; url tras el click={page.url}"
-        sid = self.capture(page, page_path, "desktop", f"tras click en {name!r}")
+            detail = f"href={href!r}; url after click={page.url}"
+        sid = self.capture(page, page_path, "desktop", f"after clicking {name!r}")
         return {"passed": ok, "detail": detail, "screenshot": sid}
 
     def _check_form_submits(self, ctx_by_vp, page_path, args):
@@ -273,10 +273,10 @@ class Runner:
                 continue
             box.fill(value)
         if missing:
-            return {"passed": False, "detail": f"no se encontraron campos con etiqueta: {missing}"}
+            return {"passed": False, "detail": f"no fields labelled: {missing}"}
         btn = page.get_by_role("button", name=button).first
         if btn.count() == 0:
-            return {"passed": False, "detail": f"no hay un botón {button!r}"}
+            return {"passed": False, "detail": f"no button named {button!r}"}
         btn.click(timeout=5000)
         try:
             page.get_by_text(success).first.wait_for(state="visible", timeout=5000)
@@ -287,24 +287,24 @@ class Runner:
         body = urllib.parse.unquote_plus(" ".join(c["body"] for c in captured))
         values_sent = all(value in body for _, value in fields)
         post = any(c["method"] == "POST" for c in captured)
-        sid = self.capture(page, page_path, "desktop", "tras enviar el formulario")
+        sid = self.capture(page, page_path, "desktop", "after submitting the form")
         ok = post and values_sent and confirmed
         return {"passed": ok, "screenshot": sid,
-                "detail": f"POST a {endpoint}: {post}; valores enviados: {values_sent}; confirmación visible: {confirmed}",
+                "detail": f"POST to {endpoint}: {post}; values sent: {values_sent}; confirmation visible: {confirmed}",
                 "requests": captured}
 
     def _check_no_horizontal_overflow(self, ctx_by_vp, page_path, args):
         info = self.results["pages"].get(page_path, {}).get("mobile", {}).get("overflow")
         if info is None:
-            return {"passed": False, "detail": "la página no cargó en móvil"}
+            return {"passed": False, "detail": "the page did not load on mobile"}
         return {"passed": not info["overflow"],
-                "detail": (f"viewport de {info['viewportWidth']} px: scrollWidth={info['scrollWidth']}, "
+                "detail": (f"{info['viewportWidth']} px viewport: scrollWidth={info['scrollWidth']}, "
                            f"innerWidth={info['innerWidth']}"),
                 "culprits": info["culprits"]}
 
     def run(self):
         if not wait_for_server(self.base):
-            self.results["errors"].append("la entrega no respondió en http://web:8080")
+            self.results["errors"].append("the delivery did not respond at http://web:8080")
         with sync_playwright() as p:
             browser = p.chromium.launch()
             contexts = {vp: self.new_context(browser, vp) for vp in VIEWPORTS}
