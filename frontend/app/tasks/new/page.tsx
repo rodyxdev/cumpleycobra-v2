@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import { Badge, Button, Card, ErrorNote, Spinner } from "@/components/ui";
+import { Badge, Button, Card, ErrorNote, FilePicker, Spinner } from "@/components/ui";
 import { api } from "@/lib/api";
 import { Criterion, Draft, Review } from "@/lib/types";
 
@@ -112,10 +112,8 @@ export default function NewTaskPage() {
           <textarea className="h-44 w-full rounded-lg border border-slate-300 p-3 font-mono text-sm" value={request}
             onChange={(e) => setRequest(e.target.value)} placeholder="Describe the deliverable, rules and examples…" />
           <div className="flex flex-wrap items-center gap-3">
-            <label className="text-sm text-slate-700">
-              Mockups (web, optional):{" "}
-              <input type="file" accept="image/png,image/jpeg" multiple onChange={(e) => upload(e.target.files)} className="text-sm" />
-            </label>
+            <FilePicker label="Attach mockups (web, optional)…" accept="image/png,image/jpeg" multiple
+              selected={mockups.length ? `${mockups.length} attached` : null} onFiles={upload} />
             {mockups.map((m) => (
               <figure key={m.id} className="flex items-center gap-2 rounded-lg border border-slate-200 p-1 pr-2 text-xs">
                 {/* eslint-disable-next-line @next/next/no-img-element */}

@@ -23,6 +23,7 @@ from pathlib import Path
 
 from backend.canonical import canonical_hash
 from backend.contract.models import TaskDraft
+from backend.contract.validation import contract_language
 from backend.ingest import Workspace
 from backend.ingest.hashing import iter_entries
 from backend.llm import LLMError, track_usage
@@ -50,12 +51,22 @@ def web_suite_hash(draft: TaskDraft) -> str:
 
 
 def web_plan(draft: TaskDraft) -> dict[str, list[str]]:
+    """Plan legible, en el idioma del contrato. No repite el texto del criterio (la UI lo muestra arriba)."""
+    english = contract_language(draft) == "en"
     plan = {}
     for c in draft.criteria:
         if c.type == "test" and c.web_check:
-            plan[c.id] = [f"Se comprueba en un navegador real ({c.web_check.kind}) en la página {c.web_check.page}: {c.text}"]
+            plan[c.id] = [
+                f"Checked in a real browser ({c.web_check.kind}) on page {c.web_check.page}, at 1440 px and 390 px."
+                if english else
+                f"Se comprueba en un navegador real ({c.web_check.kind}) en la página {c.web_check.page}, a 1440 px y 390 px."
+            ]
         elif c.type == "visual":
-            plan[c.id] = [f"Se juzga con capturas a 1440 px y 390 px comparadas con los mockups: {c.text}"]
+            plan[c.id] = [
+                "Judged by Muse Spark from screenshots at 1440 px and 390 px, compared with the mockups."
+                if english else
+                "Lo juzga Muse Spark con capturas a 1440 px y 390 px, comparadas con los mockups."
+            ]
     return plan
 
 

@@ -73,6 +73,33 @@ export function Button({
   );
 }
 
+/** Selector de archivos con un botón visible: el control nativo ("Seleccionar archivo") pasaba
+ *  desapercibido. El <input> sigue en el DOM (oculto) para que funcione con teclado y lectores. */
+export function FilePicker({
+  label,
+  accept,
+  multiple,
+  onFiles,
+  selected,
+}: {
+  label: string;
+  accept: string;
+  multiple?: boolean;
+  onFiles: (files: FileList | null) => void;
+  selected?: string | null;
+}) {
+  return (
+    <label className="inline-flex cursor-pointer items-center gap-3">
+      <input type="file" accept={accept} multiple={multiple} className="sr-only"
+        onChange={(e) => onFiles(e.target.files)} />
+      <span className="inline-flex items-center gap-2 rounded-lg bg-white px-3.5 py-2 text-sm font-medium text-slate-800 ring-1 ring-slate-300 hover:bg-slate-50">
+        📎 {label}
+      </span>
+      <span className="text-sm text-slate-600">{selected ?? "No file selected"}</span>
+    </label>
+  );
+}
+
 export function Spinner({ label }: { label?: string }) {
   return (
     <span className="inline-flex items-center gap-2 text-sm text-slate-600">

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { useSession } from "@/components/Nav";
-import { Badge, Button, Card, contractUrl, ErrorNote, Hash, Spinner, TxList } from "@/components/ui";
+import { Badge, Button, Card, contractUrl, ErrorNote, FilePicker, Hash, Spinner, TxList } from "@/components/ui";
 import { api, blobUrl } from "@/lib/api";
 import { Report, Task } from "@/lib/types";
 
@@ -305,7 +305,8 @@ function SubmitForm({ taskId, profile, onBusy, onError, onDone }: {
           <Button variant={mode === "github" ? "primary" : "secondary"} onClick={() => setMode("github")}>GitHub repo + commit</Button>
         </div>
         {mode === "zip" ? (
-          <input type="file" accept=".zip,application/zip" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+          <FilePicker label="Choose ZIP file…" accept=".zip,application/zip" selected={file?.name}
+            onFiles={(files) => setFile(files?.[0] ?? null)} />
         ) : (
           <div className="grid gap-2 sm:grid-cols-2">
             <input className="rounded-lg border border-slate-300 px-2 py-1.5" placeholder="owner/repo" value={repo} onChange={(e) => setRepo(e.target.value)} />
