@@ -35,7 +35,7 @@ docs/fases/          bitácora por fase
 
 ## Preparar la demo
 
-`.\scripts\demo_reset.ps1` limpia los datos locales, verifica Docker, Meta y testnet, fondea las billeteras demo, construye las imágenes y deja en `demo/` los ZIPs, los mockups y el guion (`demo/GUION.txt`). Se puede correr varias veces seguidas.
+`.\scripts\demo_reset.ps1` limpia los datos locales, verifica Docker, Meta y testnet, fondea las billeteras demo, construye las imágenes y deja en `demo/` los ZIPs, los mockups y el guion (`demo/GUION.txt`). Se puede correr varias veces seguidas. Si Docker Desktop no arranca por sockets huérfanos (`sailor-ingest.sock ... cannot be accessed`), corre `.\scripts\fix_docker.ps1`. Si Docker Desktop no arranca por sockets huérfanos (`sailor-ingest.sock ... cannot be accessed`), corre `.\scriptsix_docker.ps1`.
 
 ## Puesta en marcha (Windows, PowerShell)
 

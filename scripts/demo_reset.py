@@ -232,15 +232,23 @@ DELIVERIES = {
     "5-landing-vite-react.zip": FIXTURES / "landing" / "vite_react",
 }
 
-GUIDE = """CUMPLE&COBRA — GUION DE LA DEMO
+GUIDE = r"""CUMPLE&COBRA — GUION DE LA DEMO
 ================================
 
 Frontend: http://localhost:3000   ·   API: http://127.0.0.1:8000
 Contrato de escrow (testnet): {contract}
 
 Antes de grabar
-- Navegador: borra los datos del sitio localhost:3000 (las sesiones viejas ya no existen).
-- Levanta la API y el frontend (ver README).
+- Docker Desktop abierto. Si muere con "sailor-ingest.sock ... cannot be accessed": .\scripts\fix_docker.ps1
+- Levanta la API y el frontend (dos terminales, desde la carpeta del repo):
+    .venv\Scripts\python -m uvicorn backend.main:app --port 8000
+    node frontend/node_modules/next/dist/bin/next dev frontend --port 3000
+- Abre http://localhost:3000. Las sesiones viejas del navegador se limpian solas.
+- Los archivos para los selectores están en demo\deliveries y demo\mockups.
+
+Tiempos de espera (para cortar en la edición)
+- Generate draft ≈ 20 s · Review criteria ≈ 30 s · Confirm (script, genera tests ocultos) ≈ 60 s
+- Deposit / Accept ≈ 10 s cada uno (testnet) · Verificación script ≈ 35 s · web ≈ 20-25 s
 
 A. Perfil script (≈3 min)
  1. "Continue as demo freelancer", vuelve al inicio, "Continue as demo client".
@@ -252,7 +260,10 @@ A. Perfil script (≈3 min)
 
 B. Perfil web (≈4 min), una sola tarea
  1. Como cliente: New task → Samples: "Landing page" → Mockups: mockups/M1-desktop.png y M2-mobile.png
-    → Generate draft → Review criteria → (quita criterios que impongan implementación) → Confirm.
+    → Generate draft → Review criteria → Confirm.
+    Antes de confirmar, revisa la etiqueta gris de cada criterio: si alguno usa
+    element_visible(button, Pedir ahora) quítalo con "remove" ("Pedir ahora" es un link en la entrega).
+    Con el pedido de ejemplo actual el modelo usa link_navigates(Pedir ahora, #contacto), que está bien.
  2. Approve test plan → Deposit 25 USDC.
  3. Freelancer: Accept → entrega deliveries/2-landing-broken-on-mobile.zip → rejected (scroll horizontal a 390 px).
  4. Entrega deliveries/3-landing-hidden-text.zip → manual review (texto oculto dirigido al evaluador).

@@ -27,8 +27,9 @@ Examples:
 - summarize_sales("# header\\n\\ngrape,3,50") returns {"grape": 150}
 - summarize_sales("pear,two,300") raises ValueError`,
   "Landing page": `A one-page landing for "Huerta Viva", an organic vegetable box service.
-Header with the brand on the left and navigation (Servicios, Contacto) on the right. A hero with the title
-"Verduras orgánicas a tu puerta", a short sentence and a "Pedir ahora" button. Three service cards in a row
+Header with the brand on the left and navigation links (Servicios, Contacto) on the right. A hero with the
+title "Verduras orgánicas a tu puerta", a short sentence and a "Pedir ahora" call-to-action link that takes the
+visitor to the contact form. Three service cards in a row
 (stacked on mobile). A contact form with Nombre, Email and Mensaje and an "Enviar" button that POSTs the data
 to /api/contacto and shows "¡Gracias! Te responderemos pronto.". It must work on a 390 px phone with no
 horizontal scroll, and the browser tab title must say "Huerta Viva". Mockups attached.`,
